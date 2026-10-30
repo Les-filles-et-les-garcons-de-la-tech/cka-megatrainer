@@ -1,0 +1,778 @@
+{
+  "domains": [
+    {"id": "cluster", "name": "Cluster Architecture, Installation & Configuration", "weight": 25},
+    {"id": "workloads", "name": "Workloads & Scheduling", "weight": 15},
+    {"id": "storage", "name": "Storage", "weight": 10},
+    {"id": "networking", "name": "Services & Networking", "weight": 20},
+    {"id": "troubleshooting", "name": "Troubleshooting", "weight": 30}
+  ],
+  "questions": [
+    {
+      "id": "CLU-001",
+      "domain": "cluster",
+      "topic": "RBAC",
+      "difficulty": 1,
+      "title": "Give Jane read access to Pods",
+      "scenario": "In namespace 'dev', user 'jane' must be able to get and list Pods - nothing more, and only in that namespace.",
+      "tip": "Role/RoleBinding are namespaced; ClusterRole/ClusterRoleBinding are cluster-wide. Always finish with 'kubectl auth can-i'.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 60,
+          "prompt": "Step 1 - Create the namespaced permission set (a Role) named 'pod-reader'. Type the correct command in full.",
+          "options": [
+            {"cmd": "kubectl create role pod-reader --verb=get,list --resource=pods -n dev", "correct": true, "next": "s2"},
+            {"cmd": "kubectl create clusterrole pod-reader --verb=get,list --resource=pods -n dev", "why": "A ClusterRole is cluster-scoped: '-n' is ignored and the object is not limited to 'dev'."},
+            {"cmd": "kubectl create role pod-reader --verb=get,list --resource=pods", "why": "No '-n dev': the Role lands in the current namespace (usually 'default')."},
+            {"cmd": "kubectl create role pod-reader --verbs=get,list --resources=pods -n dev", "why": "The flags are singular: --verb and --resource."}
+          ],
+          "explain": "'kubectl create role NAME --verb=... --resource=... -n NS' generates the rule imperatively - far faster than writing YAML."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 75,
+          "prompt": "Step 2 - Bind that Role to user 'jane' (binding name: read-pods).",
+          "options": [
+            {"cmd": "kubectl create rolebinding read-pods --role=pod-reader --user=jane -n dev", "correct": true, "next": "s3"},
+            {"cmd": "kubectl create rolebinding read-pods --clusterrole=pod-reader --user=jane -n dev", "why": "It references a ClusterRole, but 'pod-reader' is a Role: the binding would grant nothing."},
+            {"cmd": "kubectl create clusterrolebinding read-pods --role=pod-reader --user=jane -n dev", "why": "A ClusterRoleBinding has no --role flag; it can only bind ClusterRoles."},
+            {"cmd": "kubectl create rolebinding read-pods --role=pod-reader --serviceaccount=jane -n dev", "why": "--serviceaccount expects 'namespace:name' and targets ServiceAccounts, not users."}
+          ],
+          "explain": "A RoleBinding grants a Role (or ClusterRole) inside ONE namespace to users, groups or ServiceAccounts."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 60,
+          "prompt": "Step 3 - Verify that jane can list Pods in 'dev'.",
+          "options": [
+            {"cmd": "kubectl auth can-i list pods --as=jane -n dev", "correct": true, "next": null},
+            {"cmd": "kubectl auth can-i list pods --user=jane -n dev", "why": "--user picks a credential entry in your kubeconfig; impersonation is done with --as."},
+            {"cmd": "kubectl can-i list pods --as=jane -n dev", "why": "'can-i' is a sub-command of 'auth'."},
+            {"cmd": "kubectl auth can-i pods list --as=jane -n dev", "why": "Order matters: verb first, then resource."}
+          ],
+          "explain": "'--as' impersonates a user. The answer is simply 'yes' or 'no'."
+        }
+      }
+    },
+    {
+      "id": "CLU-002",
+      "domain": "cluster",
+      "topic": "Cluster lifecycle (kubeadm upgrade)",
+      "difficulty": 2,
+      "title": "Upgrade a worker node",
+      "scenario": "The control plane already runs v1.37.1. Upgrade worker 'node01' to v1.37.1 (Pods are running on it). The kubeadm package on node01 is already upgraded.",
+      "tip": "Worker upgrade order: drain -> kubeadm upgrade node -> upgrade kubelet/kubectl packages + restart kubelet -> uncordon.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 75,
+          "prompt": "Step 1 - From the control plane: safely evict the workloads from node01 and make it unschedulable.",
+          "options": [
+            {"cmd": "kubectl drain node01 --ignore-daemonsets --delete-emptydir-data", "correct": true, "next": "s2"},
+            {"cmd": "kubectl cordon node01", "why": "Cordon only marks the node unschedulable; running Pods are NOT evicted."},
+            {"cmd": "kubectl drain node01", "why": "Refuses to proceed when DaemonSet Pods (CNI, kube-proxy) or emptyDir volumes exist: it needs the two extra flags."},
+            {"cmd": "kubectl delete node node01", "why": "Removes the Node object entirely; the node would have to re-join the cluster."}
+          ],
+          "explain": "drain = cordon + evict. DaemonSet Pods cannot be evicted (--ignore-daemonsets) and emptyDir data is lost (--delete-emptydir-data)."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 60,
+          "prompt": "Step 2 - On node01 (after ssh): upgrade its local kubelet configuration.",
+          "options": [
+            {"cmd": "sudo kubeadm upgrade node", "correct": true, "next": "s3"},
+            {"cmd": "sudo kubeadm upgrade apply v1.37.1", "why": "'apply' is only for the FIRST control-plane node."},
+            {"cmd": "sudo kubeadm upgrade plan", "why": "'plan' only reports the available versions; it changes nothing."}
+          ],
+          "explain": "On workers (and additional control-plane nodes) it is 'kubeadm upgrade node'. Afterwards you upgrade the kubelet package and run 'systemctl daemon-reload && systemctl restart kubelet'."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 45,
+          "prompt": "Step 3 - The kubelet is upgraded and restarted. From the control plane, let node01 receive Pods again.",
+          "options": [
+            {"cmd": "kubectl uncordon node01", "correct": true, "next": null},
+            {"cmd": "kubectl cordon node01", "why": "That is the opposite: it makes the node unschedulable."},
+            {"cmd": "kubectl undrain node01", "why": "There is no such command."}
+          ],
+          "explain": "A drained node stays SchedulingDisabled until you uncordon it - the classic forgotten last step."
+        }
+      }
+    },
+    {
+      "id": "WRK-001",
+      "domain": "workloads",
+      "topic": "Deployments / dry-run workflow",
+      "difficulty": 2,
+      "title": "Deployment with resource limits",
+      "scenario": "Create a Deployment 'web' (image nginx:1.26, 3 replicas) whose container is limited to cpu 500m and memory 128Mi.",
+      "tip": "For anything the imperative command cannot express: generate with '--dry-run=client -o yaml', edit, then apply.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 90,
+          "prompt": "Step 1 - Generate the manifest into deploy.yaml WITHOUT creating anything in the cluster.",
+          "options": [
+            {"cmd": "kubectl create deployment web --image=nginx:1.26 --replicas=3 --dry-run=client -o yaml > deploy.yaml", "correct": true, "next": "s2"},
+            {"cmd": "kubectl run web --image=nginx:1.26 --replicas=3 --dry-run=client -o yaml > deploy.yaml", "why": "'kubectl run' creates a Pod, not a Deployment."},
+            {"cmd": "kubectl create deployment web --image=nginx:1.26 --replicas=3 -o yaml > deploy.yaml", "why": "Without --dry-run=client the Deployment is created immediately in the cluster."},
+            {"cmd": "kubectl create deployment web --image nginx:1.26 --replicas 3 --dry-run -o yaml > deploy.yaml", "why": "A bare --dry-run is not valid any more: it needs a value (client, server or none)."}
+          ],
+          "explain": "Tip: 'export do=\"--dry-run=client -o yaml\"' saves a lot of typing during the exam."
+        },
+        "s2": {
+          "type": "edit",
+          "time_limit": 120,
+          "filename": "deploy.yaml",
+          "prompt": "Step 2 - Limit the container to cpu 500m and memory 128Mi: type the right snippet in place of 'resources: {}'. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: apps/v1",
+            "kind: Deployment",
+            "metadata:",
+            "  labels:",
+            "    app: web",
+            "  name: web",
+            "spec:",
+            "  replicas: 3",
+            "  selector:",
+            "    matchLabels:",
+            "      app: web",
+            "  strategy: {}",
+            "  template:",
+            "    metadata:",
+            "      labels:",
+            "        app: web",
+            "    spec:",
+            "      containers:",
+            "      - image: nginx:1.26",
+            "        name: nginx",
+            "        resources: {}",
+            "status: {}"
+          ],
+          "checks": [
+            {"regex": "^( +)resources:\\s*\\n\\1  limits:\\s*$", "msg": "'limits:' must be a child of 'resources:' (indented 2 more spaces)."},
+            {"regex": "^( +)limits:\\s*\\n(\\1  \\S.*\\n)*\\1  cpu:\\s*\"?500m\"?\\s*$", "msg": "'cpu: 500m' must be under limits (2 more spaces)."},
+            {"regex": "^( +)limits:\\s*\\n(\\1  \\S.*\\n)*\\1  memory:\\s*\"?128Mi\"?\\s*$", "msg": "'memory: 128Mi' must be under limits (2 more spaces)."}
+          ],
+          "forbid": [
+            {"regex": "resources:\\s*\\{\\}", "msg": "'resources: {}' is still there - replace it."}
+          ],
+          "target": ["        resources: {}"],
+          "options": [
+            {"correct": true, "snippet": [
+              "        resources:",
+              "          limits:",
+              "            cpu: 500m",
+              "            memory: 128Mi"]},
+            {"why": "'limits' is at the same level as 'resources': it becomes an unknown container field and nothing is limited.", "snippet": [
+              "        resources:",
+              "        limits:",
+              "          cpu: 500m",
+              "          memory: 128Mi"]},
+            {"why": "requests = what the scheduler reserves. The task asks for limits = the maximum the container may use.", "snippet": [
+              "        resources:",
+              "          requests:",
+              "            cpu: 500m",
+              "            memory: 128Mi"]},
+            {"why": "128M is SI (128,000,000 bytes); the task says 128Mi (134,217,728 bytes). Watch the suffix.", "snippet": [
+              "        resources:",
+              "          limits:",
+              "            cpu: 500m",
+              "            memory: 128M"]}
+          ],
+          "recap": "Replace 'resources: {}' with a resources/limits block (cpu 500m, memory 128Mi).",
+          "next": "s3",
+          "explain": "Limits live under spec.template.spec.containers[].resources. Indentation is everything in YAML: 2 spaces, never tabs."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 45,
+          "prompt": "Step 3 - Create the Deployment from the file.",
+          "options": [
+            {"cmd": "kubectl apply -f deploy.yaml", "correct": true, "next": null},
+            {"cmd": "kubectl apply -k deploy.yaml", "why": "-k expects a directory containing a kustomization.yaml, not a manifest file."},
+            {"cmd": "kubectl apply deploy.yaml", "why": "The file must be passed with -f."},
+            {"cmd": "kubectl replace -f deploy.yaml", "why": "'replace' fails when the object does not exist yet."}
+          ],
+          "explain": "'apply -f' works both for creation and updates."
+        }
+      }
+    },
+    {
+      "id": "WRK-002",
+      "domain": "workloads",
+      "topic": "Taints and tolerations",
+      "difficulty": 2,
+      "title": "Reserve a node for GPU workloads",
+      "scenario": "Node 'node01' is reserved for GPU workloads. Only Pods that tolerate dedicated=gpu may be scheduled there.",
+      "tip": "Taint = repel. Toleration = permission to ignore a taint (it does NOT attract the Pod; use nodeSelector/affinity for that).",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 60,
+          "prompt": "Step 1 - Taint node01 with key 'dedicated', value 'gpu' and effect NoSchedule.",
+          "options": [
+            {"cmd": "kubectl taint nodes node01 dedicated=gpu:NoSchedule", "correct": true, "next": "s2"},
+            {"cmd": "kubectl taint nodes node01 dedicated=gpu=NoSchedule", "why": "The format is key=value:effect - the effect follows a colon."},
+            {"cmd": "kubectl label nodes node01 dedicated=gpu:NoSchedule", "why": "Labels attract (via selectors/affinity), they never repel. 'gpu:NoSchedule' is not even a valid label value."},
+            {"cmd": "kubectl taint node01 dedicated=gpu:NoSchedule", "why": "The resource type 'nodes' is missing before the node name."}
+          ],
+          "explain": "Taint format: key=value:effect. Effects: NoSchedule, PreferNoSchedule, NoExecute (also evicts running Pods)."
+        },
+        "s2": {
+          "type": "edit",
+          "time_limit": 120,
+          "filename": "pod.yaml",
+          "prompt": "Step 2 - Make this Pod tolerate dedicated=gpu:NoSchedule: type the right snippet in place of the TODO comment. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: v1",
+            "kind: Pod",
+            "metadata:",
+            "  name: trainer",
+            "spec:",
+            "  containers:",
+            "  - name: trainer",
+            "    image: busybox:1.36",
+            "    command: [\"sleep\", \"3600\"]",
+            "  # TODO: let this Pod run on the tainted node"
+          ],
+          "checks": [
+            {"regex": "^  tolerations:\\s*$", "msg": "Add 'tolerations:' directly under 'spec:' (2 spaces of indentation)."},
+            {"regex": "^  tolerations:\\s*\\n\\s*- ", "msg": "tolerations is a LIST: each toleration starts with '- '."},
+            {"regex": "key:\\s*\"?dedicated\"?\\s*$", "msg": "The toleration needs 'key: dedicated'."},
+            {"regex": "value:\\s*\"?gpu\"?\\s*$", "msg": "The toleration needs 'value: gpu'."},
+            {"regex": "effect:\\s*\"?NoSchedule\"?\\s*$", "msg": "The toleration needs 'effect: NoSchedule'."}
+          ],
+          "forbid": [
+            {"regex": "operator:\\s*\"?Exists\"?", "msg": "'Exists' must not have a value; with 'value: gpu' you need operator Equal (or omit the operator)."},
+            {"regex": "# TODO", "msg": "The TODO comment is still there - type the snippet in its place."}
+          ],
+          "target": ["  # TODO: let this Pod run on the tainted node"],
+          "options": [
+            {"correct": true, "snippet": [
+              "  tolerations:",
+              "  - key: dedicated",
+              "    operator: Equal",
+              "    value: gpu",
+              "    effect: NoSchedule"]},
+            {"why": "operator Exists must NOT have a value (the API rejects it). Use Equal + value, or Exists without value.", "snippet": [
+              "  tolerations:",
+              "  - key: dedicated",
+              "    operator: Exists",
+              "    value: gpu",
+              "    effect: NoSchedule"]},
+            {"why": "nodeSelector ATTRACTS the Pod to nodes labelled dedicated=gpu; it does not tolerate the taint: the Pod stays Pending.", "snippet": [
+              "  nodeSelector:",
+              "    dedicated: gpu"]},
+            {"why": "tolerations is a list: without '- ' this is a map and the API rejects the Pod.", "snippet": [
+              "  tolerations:",
+              "    key: dedicated",
+              "    value: gpu",
+              "    effect: NoSchedule"]}
+          ],
+          "recap": "Add a 'tolerations' list under spec with key/operator/value/effect.",
+          "next": "s3",
+          "explain": "tolerations is a sibling of 'containers' under the Pod spec. Remember: it allows scheduling on the node, it does not force it."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 60,
+          "prompt": "Step 3 - The reservation is over. Remove the taint from node01.",
+          "options": [
+            {"cmd": "kubectl taint nodes node01 dedicated=gpu:NoSchedule-", "correct": true, "aliases": ["kubectl taint nodes node01 dedicated:NoSchedule-", "kubectl taint nodes node01 dedicated-"], "next": null},
+            {"cmd": "kubectl taint nodes node01 dedicated=gpu:NoSchedule --remove", "why": "There is no --remove flag: a trailing '-' removes a taint."},
+            {"cmd": "kubectl untaint nodes node01 dedicated", "why": "There is no 'untaint' command."},
+            {"cmd": "kubectl label nodes node01 dedicated-", "why": "That removes a LABEL called 'dedicated', not a taint."}
+          ],
+          "explain": "Trailing dash = remove, for taints and labels alike."
+        }
+      }
+    },
+    {
+      "id": "STO-001",
+      "domain": "storage",
+      "topic": "PV / PVC binding",
+      "difficulty": 2,
+      "title": "A PVC stuck in Pending",
+      "scenario": "PVC 'data-pvc' is Pending. PV 'data-pv' exists: capacity 10Gi, accessModes ReadWriteOnce, storageClassName 'manual'. The PVC manifest is pvc.yaml.",
+      "tip": "To bind, a PV must match the PVC's storageClassName, offer at least the requested size and include the requested access mode.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 45,
+          "context": [
+            "$ kubectl get pvc",
+            "NAME       STATUS    VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   AGE",
+            "data-pvc   Pending                                      manual         5m"
+          ],
+          "prompt": "Step 1 - Show why the claim is not binding (conditions and events).",
+          "options": [
+            {"cmd": "kubectl describe pvc data-pvc", "correct": true, "next": "s2"},
+            {"cmd": "kubectl logs pvc/data-pvc", "why": "A PVC is not a workload: it has no logs."},
+            {"cmd": "kubectl get pvc data-pvc -o wide", "why": "It only repeats the table columns - no events, no reasons."},
+            {"cmd": "kubectl describe pv data-pv", "why": "The volume is fine; the explanation (events) is on the unbound claim."}
+          ],
+          "explain": "'describe' = the Events section is where the scheduler/provisioner tells you what is wrong. First reflex for any Pending object."
+        },
+        "s2": {
+          "type": "edit",
+          "time_limit": 120,
+          "filename": "pvc.yaml",
+          "context": [
+            "Events:",
+            "  Warning  FailedBinding  persistentvolume-controller",
+            "           no persistent volumes available for this claim and no storage class is set"
+          ],
+          "prompt": "Step 2 - The claim asks for more than the PV offers (size AND access mode). Type the right snippet over the wrong lines of pvc.yaml.",
+          "prefill": [
+            "apiVersion: v1",
+            "kind: PersistentVolumeClaim",
+            "metadata:",
+            "  name: data-pvc",
+            "spec:",
+            "  storageClassName: manual",
+            "  accessModes:",
+            "  - ReadWriteMany",
+            "  resources:",
+            "    requests:",
+            "      storage: 20Gi"
+          ],
+          "checks": [
+            {"regex": "- ReadWriteOnce\\s*$", "msg": "The PV only offers ReadWriteOnce: the claim must request exactly that."},
+            {"regex": "^    requests:\\s*\\n      storage:", "msg": "The size goes in resources.requests.storage."},
+            {"regex": "storage:\\s*\"?(10|[1-9])Gi\"?\\s*$", "msg": "The PV has 10Gi: request 10Gi or less."}
+          ],
+          "forbid": [
+            {"regex": "ReadWriteMany", "msg": "ReadWriteMany is not offered by the PV."}
+          ],
+          "target": [
+            "  accessModes:",
+            "  - ReadWriteMany",
+            "  resources:",
+            "    requests:",
+            "      storage: 20Gi"
+          ],
+          "options": [
+            {"correct": true, "snippet": [
+              "  accessModes:",
+              "  - ReadWriteOnce",
+              "  resources:",
+              "    requests:",
+              "      storage: 10Gi"]},
+            {"why": "The size fits now, but the PV does not offer ReadWriteMany: still no match.", "snippet": [
+              "  accessModes:",
+              "  - ReadWriteMany",
+              "  resources:",
+              "    requests:",
+              "      storage: 10Gi"]},
+            {"why": "A PVC must state its size in resources.requests.storage; 'limits' alone is rejected.", "snippet": [
+              "  accessModes:",
+              "  - ReadWriteOnce",
+              "  resources:",
+              "    limits:",
+              "      storage: 10Gi"]}
+          ],
+          "recap": "Set accessModes to ReadWriteOnce and the request to at most 10Gi.",
+          "next": "s3",
+          "explain": "Binding rules: same storageClassName, PV capacity >= request, PV accessModes must include the requested ones."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 60,
+          "prompt": "Step 3 - Apply the fix. (A PVC's spec cannot be changed in place for these fields.)",
+          "options": [
+            {"cmd": "kubectl delete pvc data-pvc && kubectl apply -f pvc.yaml", "correct": true, "next": null},
+            {"cmd": "kubectl apply -f pvc.yaml", "why": "The API rejects changes to accessModes/size of an existing claim in this state: delete and recreate."},
+            {"cmd": "kubectl replace -f pvc.yaml", "why": "Same immutability problem as apply."},
+            {"cmd": "kubectl delete pv data-pv && kubectl apply -f pvc.yaml", "why": "You would delete the volume instead of fixing the claim."}
+          ],
+          "explain": "Pending claims have nothing to lose: delete and recreate."
+        }
+      }
+    },
+    {
+      "id": "NET-001",
+      "domain": "networking",
+      "topic": "NetworkPolicy",
+      "difficulty": 3,
+      "title": "Allow API -> DB on port 5432",
+      "scenario": "Namespace 'prod' has a default-deny ingress policy. Pods labelled app=db must accept TCP 5432 only from Pods labelled app=api (same namespace).",
+      "tip": "Within one 'from' list, separate items are OR-ed; selectors inside ONE item are AND-ed. An empty rule '- {}' allows everything!",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "edit",
+          "time_limit": 120,
+          "filename": "netpol.yaml",
+          "prompt": "Step 1 - Add the ingress rule: type the right snippet in place of the TODO comment. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: networking.k8s.io/v1",
+            "kind: NetworkPolicy",
+            "metadata:",
+            "  name: allow-api-to-db",
+            "  namespace: prod",
+            "spec:",
+            "  podSelector:",
+            "    matchLabels:",
+            "      app: db",
+            "  policyTypes:",
+            "  - Ingress",
+            "  # TODO: add the ingress rule"
+          ],
+          "checks": [
+            {"regex": "(?m)^  ingress:\\s*$", "msg": "Add 'ingress:' directly under 'spec:' (2 spaces)."},
+            {"regex": "(?s)ingress:.*from:.*podSelector:.*matchLabels:\\s*\\n\\s+app:\\s*\"?api\"?", "msg": "Allow traffic 'from' a podSelector with matchLabels app: api."},
+            {"regex": "(?s)ingress:.*ports:.*port:\\s*\"?5432\"?", "msg": "Restrict the rule with 'ports:' -> 'port: 5432'."}
+          ],
+          "forbid": [
+            {"regex": "ingress:\\s*(\\[\\s*\\]|\\n\\s*-\\s*\\{\\s*\\})", "msg": "An empty ingress rule allows (or denies) the wrong traffic - it must name the source and the port."},
+            {"regex": "^  - ports:", "msg": "'- ports:' starts a SECOND rule: 'ports' must belong to the same rule as 'from' (no dash)."},
+            {"regex": "# TODO", "msg": "The TODO comment is still there - type the snippet in its place."}
+          ],
+          "target": ["  # TODO: add the ingress rule"],
+          "options": [
+            {"correct": true, "snippet": [
+              "  ingress:",
+              "  - from:",
+              "    - podSelector:",
+              "        matchLabels:",
+              "          app: api",
+              "    ports:",
+              "    - protocol: TCP",
+              "      port: 5432"]},
+            {"why": "'- ports' starts a second rule. Rules are OR-ed: api may reach ANY port, and EVERYONE may reach 5432.", "snippet": [
+              "  ingress:",
+              "  - from:",
+              "    - podSelector:",
+              "        matchLabels:",
+              "          app: api",
+              "  - ports:",
+              "    - protocol: TCP",
+              "      port: 5432"]},
+            {"why": "namespaceSelector selects NAMESPACES labelled app=api, not the api Pods.", "snippet": [
+              "  ingress:",
+              "  - from:",
+              "    - namespaceSelector:",
+              "        matchLabels:",
+              "          app: api",
+              "    ports:",
+              "    - protocol: TCP",
+              "      port: 5432"]}
+          ],
+          "recap": "Add ingress: from podSelector app=api + ports TCP 5432.",
+          "next": "s2",
+          "explain": "Two selectors: spec.podSelector = who is PROTECTED (db); from.podSelector = who is ALLOWED (api)."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 60,
+          "prompt": "Step 2 - The policy is applied. Show the rules it enforces.",
+          "options": [
+            {"cmd": "kubectl describe netpol allow-api-to-db -n prod", "correct": true, "next": null},
+            {"cmd": "kubectl get netpol allow-api-to-db -n prod -o wide", "why": "'wide' only shows name, pod-selector and age - not the rules."},
+            {"cmd": "kubectl logs netpol/allow-api-to-db -n prod", "why": "A NetworkPolicy has no logs."},
+            {"cmd": "kubectl explain netpol allow-api-to-db -n prod", "why": "'explain' documents the API schema; it does not read live objects."}
+          ],
+          "explain": "'netpol' is the short name for networkpolicies. describe prints the allowed sources and ports in plain language."
+        }
+      }
+    },
+    {
+      "id": "NET-002",
+      "domain": "networking",
+      "topic": "Services (NodePort) and endpoints",
+      "difficulty": 2,
+      "title": "Expose a Deployment outside the cluster",
+      "scenario": "Deployment 'web' (label app=web) listens on container port 8080. Expose it as Service 'web-svc' on port 80, reachable from outside through every node.",
+      "tip": "port = Service port, targetPort = container port. A Service without endpoints means the selector matches no Ready Pod.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 90,
+          "prompt": "Step 1 - Create the Service imperatively.",
+          "options": [
+            {"cmd": "kubectl expose deployment web --name=web-svc --port=80 --target-port=8080 --type=NodePort", "correct": true, "next": "s2"},
+            {"cmd": "kubectl expose deployment web --name=web-svc --port=8080 --target-port=80 --type=NodePort", "why": "port and target-port are swapped: the container listens on 8080."},
+            {"cmd": "kubectl expose deployment web --name=web-svc --port=80 --target-port=8080", "why": "The default type is ClusterIP: internal only."},
+            {"cmd": "kubectl expose deployment web --name=web-svc --port=80 --target-port=8080 --type=LoadBalancer", "why": "Needs a cloud load balancer (stays <pending> on kubeadm clusters). The task asks for NodePort."}
+          ],
+          "explain": "expose copies the selector of the Deployment, so you never write it by hand."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 45,
+          "prompt": "Step 2 - Check that the Service actually targets Ready Pods (list its endpoints).",
+          "options": [
+            {"cmd": "kubectl get endpoints web-svc", "correct": true, "aliases": ["kubectl get ep web-svc"], "next": null},
+            {"cmd": "kubectl get svc web-svc --show-endpoints", "why": "That flag does not exist."},
+            {"cmd": "kubectl describe pod web-svc", "why": "'web-svc' is a Service, not a Pod."},
+            {"cmd": "kubectl get endpointslice web-svc", "why": "EndpointSlices have a random suffix (web-svc-xxxxx), so the exact name is not found; use -l kubernetes.io/service-name=web-svc."}
+          ],
+          "explain": "An empty ENDPOINTS column (<none>) = wrong selector, wrong namespace or Pods not Ready."
+        }
+      }
+    },
+    {
+      "id": "TRB-001",
+      "domain": "troubleshooting",
+      "topic": "Pod failures (OOMKilled)",
+      "difficulty": 2,
+      "title": "A Pod in CrashLoopBackOff",
+      "scenario": "Pod 'cache' (namespace default) keeps restarting.",
+      "tip": "CrashLoopBackOff is a symptom, not a cause: 'describe' for the reason/exit code, 'logs --previous' for the app's last words.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 45,
+          "context": [
+            "$ kubectl get pod cache",
+            "NAME    READY   STATUS             RESTARTS      AGE",
+            "cache   0/1     CrashLoopBackOff   6 (20s ago)   4m"
+          ],
+          "prompt": "Step 1 - Show the container's last termination reason and exit code.",
+          "options": [
+            {"cmd": "kubectl describe pod cache", "correct": true, "next": "s2"},
+            {"cmd": "kubectl logs cache --previous", "why": "Prints application output, not the termination reason or exit code."},
+            {"cmd": "kubectl get pod cache -o wide", "why": "Only adds the node and IP columns."},
+            {"cmd": "kubectl top pod cache", "why": "Shows live usage; a crash-looping Pod usually has no metrics."}
+          ],
+          "explain": "Look at 'Last State: Terminated' (Reason, Exit Code) and at the Events at the bottom."
+        },
+        "s2": {
+          "type": "edit",
+          "time_limit": 120,
+          "filename": "pod.yaml",
+          "context": [
+            "    Last State:     Terminated",
+            "      Reason:       OOMKilled",
+            "      Exit Code:    137"
+          ],
+          "prompt": "Step 2 - Exit code 137 + OOMKilled = memory limit too low (needs >= 256Mi). Type the right snippet over the resources block.",
+          "prefill": [
+            "apiVersion: v1",
+            "kind: Pod",
+            "metadata:",
+            "  name: cache",
+            "spec:",
+            "  containers:",
+            "  - name: cache",
+            "    image: redis:7",
+            "    resources:",
+            "      requests:",
+            "        memory: 32Mi",
+            "      limits:",
+            "        memory: 64Mi"
+          ],
+          "checks": [
+            {"regex": "(?s)limits:\\s*\\n\\s+memory:\\s*\"?((25[6-9]|2[6-9]\\d|[3-9]\\d\\d|\\d{4,})Mi|\\d+Gi)\\b", "msg": "limits.memory must be at least 256Mi."}
+          ],
+          "target": [
+            "    resources:",
+            "      requests:",
+            "        memory: 32Mi",
+            "      limits:",
+            "        memory: 64Mi"
+          ],
+          "options": [
+            {"correct": true, "snippet": [
+              "    resources:",
+              "      requests:",
+              "        memory: 32Mi",
+              "      limits:",
+              "        memory: 256Mi"]},
+            {"why": "The OOM killer enforces the LIMIT, not the request. And request > limit is rejected by the API.", "snippet": [
+              "    resources:",
+              "      requests:",
+              "        memory: 256Mi",
+              "      limits:",
+              "        memory: 64Mi"]},
+            {"why": "256M is SI (256,000,000 bytes, about 244Mi): below the required 256Mi. Use the binary suffix Mi.", "snippet": [
+              "    resources:",
+              "      requests:",
+              "        memory: 32Mi",
+              "      limits:",
+              "        memory: 256M"]},
+            {"why": "Removing the limit hides the problem: the task asks for a limit of at least 256Mi, and unlimited Pods can starve the node.", "snippet": [
+              "    resources:",
+              "      requests:",
+              "        memory: 32Mi"]}
+          ],
+          "recap": "Raise resources.limits.memory to >= 256Mi, then recreate the Pod.",
+          "next": null,
+          "explain": "137 = 128 + 9 (SIGKILL). The kernel killed the process because it exceeded its cgroup memory limit. Keep requests <= limits."
+        }
+      }
+    },
+    {
+      "id": "TRB-002",
+      "domain": "troubleshooting",
+      "topic": "Node failures (kubelet)",
+      "difficulty": 3,
+      "title": "A NotReady worker node",
+      "scenario": "Node 'node01' is NotReady. Walk from the cluster view down to the root cause on the node, then fix it.",
+      "tip": "The kubelet is NOT a Pod: it is a systemd service on the node. NotReady almost always means 'kubelet stopped talking to the API server'.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 45,
+          "context": [
+            "$ kubectl get nodes",
+            "NAME           STATUS     ROLES           AGE   VERSION",
+            "controlplane   Ready      control-plane   30d   v1.37.1",
+            "node01         NotReady   <none>          30d   v1.37.1"
+          ],
+          "prompt": "Step 1 - Show node01's Conditions and recent Events.",
+          "options": [
+            {"cmd": "kubectl describe node node01", "correct": true, "next": "s2"},
+            {"cmd": "kubectl logs node/node01", "why": "kubectl logs only works on Pods (and workload resources)."},
+            {"cmd": "kubectl top node node01", "why": "Needs metrics-server and a working kubelet - a NotReady node reports nothing."},
+            {"cmd": "kubectl get nodes -o wide", "why": "Same table plus IPs and versions: no conditions, no events."}
+          ],
+          "explain": "Look for 'Ready False ... Kubelet stopped posting node status' in Conditions."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 45,
+          "context": [
+            "Conditions:",
+            "  Ready   Unknown   NodeStatusUnknown   Kubelet stopped posting node status."
+          ],
+          "prompt": "Step 2 - ssh to node01: check whether the kubelet service is running.",
+          "options": [
+            {"cmd": "sudo systemctl status kubelet", "correct": true, "next": "s3"},
+            {"cmd": "sudo systemctl status kube-kubelet", "why": "The unit is called 'kubelet'."},
+            {"cmd": "kubectl get pods -n kube-system -l component=kubelet", "why": "The kubelet is a systemd service on the node, not a Pod."},
+            {"cmd": "sudo service kubectl status", "why": "kubectl is a client CLI, not a service."}
+          ],
+          "explain": "Control-plane components run as static Pods, but the kubelet (and the container runtime) run as systemd services."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "● kubelet.service - kubelet: The Kubernetes Node Agent",
+            "     Loaded: loaded (/usr/lib/systemd/system/kubelet.service; disabled)",
+            "     Active: inactive (dead)"
+          ],
+          "prompt": "Step 3 - Read the last 50 kubelet log lines (no pager).",
+          "options": [
+            {"cmd": "sudo journalctl -u kubelet --no-pager -n 50", "correct": true, "aliases": ["sudo journalctl -u kubelet -n 50 --no-pager"], "next": "s4"},
+            {"cmd": "kubectl logs kubelet -n kube-system", "why": "There is no kubelet Pod to read logs from."},
+            {"cmd": "sudo journalctl kubelet -n 50", "why": "A unit is selected with -u."},
+            {"cmd": "cat /var/log/kubelet.log", "why": "On systemd hosts (kubeadm installs) the kubelet logs to journald."}
+          ],
+          "explain": "journalctl -u <unit> is the tool for every systemd component: kubelet, containerd, ..."
+        },
+        "s4": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "kubelet.service: Deactivated successfully.",
+            "Stopped kubelet.service - kubelet: The Kubernetes Node Agent."
+          ],
+          "prompt": "Step 4 - The service was stopped and disabled. Start it now AND make it survive a reboot.",
+          "options": [
+            {"cmd": "sudo systemctl enable --now kubelet", "correct": true, "aliases": ["sudo systemctl enable kubelet --now"], "next": null},
+            {"cmd": "sudo systemctl start kubelet", "why": "Starts it now, but it stays disabled: after a reboot the node is NotReady again."},
+            {"cmd": "sudo systemctl enable kubelet", "why": "Survives a reboot, but is not started right now."},
+            {"cmd": "sudo kubeadm reset", "why": "Destroys the node's cluster state: a very drastic, unneeded step."}
+          ],
+          "explain": "enable --now = enable + start in one command. Then confirm with 'kubectl get nodes' from the control plane."
+        }
+      }
+    },
+    {
+      "id": "TRB-003",
+      "domain": "troubleshooting",
+      "topic": "Cluster DNS (CoreDNS)",
+      "difficulty": 3,
+      "title": "Pods cannot resolve Service names",
+      "scenario": "Pods report 'bad address' when resolving Service names. Test DNS, inspect CoreDNS, then fix its configuration.",
+      "tip": "CoreDNS Pods carry the label k8s-app=kube-dns and live in kube-system. Their config is the 'coredns' ConfigMap (the Corefile).",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 90,
+          "prompt": "Step 1 - From a throw-away busybox:1.36 Pod named 'dnstest', resolve kubernetes.default. The Pod must vanish afterwards and its output must be shown.",
+          "options": [
+            {"cmd": "kubectl run dnstest --rm -it --image=busybox:1.36 --restart=Never -- nslookup kubernetes.default", "correct": true, "next": "s2"},
+            {"cmd": "kubectl run dnstest --image=busybox:1.36 --restart=Never -- nslookup kubernetes.default", "why": "Without -it --rm you see no output and the Pod stays behind (Completed)."},
+            {"cmd": "kubectl exec dnstest -- nslookup kubernetes.default", "why": "Assumes a Pod 'dnstest' already exists."},
+            {"cmd": "kubectl run dnstest --rm -it --image=busybox:1.36 --restart=Never -- ping kubernetes.default", "why": "ping tests ICMP, and Service IPs are virtual and do not answer it. nslookup/dig test DNS itself."}
+          ],
+          "explain": "--rm -it --restart=Never is the standard throw-away debug Pod pattern."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            ";; connection timed out; no servers could be reached"
+          ],
+          "prompt": "Step 2 - Read the logs of the CoreDNS Pods.",
+          "options": [
+            {"cmd": "kubectl logs -n kube-system -l k8s-app=kube-dns", "correct": true, "next": "s3"},
+            {"cmd": "kubectl logs -n kube-system coredns", "why": "No Pod is named exactly 'coredns' (names carry a random suffix); select by label instead."},
+            {"cmd": "kubectl logs -l k8s-app=kube-dns", "why": "Missing '-n kube-system': it would search the current namespace."},
+            {"cmd": "kubectl logs -n kube-system -l app=coredns", "why": "kubeadm labels CoreDNS Pods k8s-app=kube-dns, even though they are named coredns."}
+          ],
+          "explain": "Selecting by label (-l) avoids having to look up the Pod names."
+        },
+        "s3": {
+          "type": "edit",
+          "time_limit": 120,
+          "filename": "Corefile",
+          "context": [
+            "[ERROR] plugin/errors: 2 HINFO: read udp 10.244.0.5:40841->10.255.255.1:53: i/o timeout"
+          ],
+          "prompt": "Step 3 - 'kubectl edit cm coredns -n kube-system': upstream queries go to a dead IP. Type the right line in place of the broken 'forward' line.",
+          "prefill": [
+            ".:53 {",
+            "    errors",
+            "    health {",
+            "       lameduck 5s",
+            "    }",
+            "    ready",
+            "    kubernetes cluster.local in-addr.arpa ip6.arpa {",
+            "       pods insecure",
+            "       fallthrough in-addr.arpa ip6.arpa",
+            "       ttl 30",
+            "    }",
+            "    prometheus :9153",
+            "    forward . 10.255.255.1",
+            "    cache 30",
+            "    loop",
+            "    reload",
+            "    loadbalance",
+            "}"
+          ],
+          "checks": [
+            {"regex": "(?m)^\\s*forward\\s+\\.\\s+/etc/resolv\\.conf\\s*$", "msg": "Use 'forward . /etc/resolv.conf'."},
+            {"regex": "kubernetes\\s+cluster\\.local", "msg": "Do not remove the 'kubernetes' plugin: it serves the cluster domain."}
+          ],
+          "forbid": [
+            {"regex": "10\\.255\\.255\\.1", "msg": "The dead upstream 10.255.255.1 is still configured."}
+          ],
+          "target": ["    forward . 10.255.255.1"],
+          "options": [
+            {"correct": true, "snippet": ["    forward . /etc/resolv.conf"]},
+            {"why": "Works only with Internet access and bypasses the node's DNS settings (internal domains break). The task asks for the node's resolver file.", "snippet": ["    forward . 8.8.8.8"]},
+            {"why": "Missing the zone: the syntax is 'forward FROM TO...', and FROM '.' means every name.", "snippet": ["    forward /etc/resolv.conf"]},
+            {"why": "The 'proxy' plugin was removed from CoreDNS long ago; 'forward' replaced it.", "snippet": ["    proxy . /etc/resolv.conf"]}
+          ],
+          "recap": "Change 'forward . 10.255.255.1' to 'forward . /etc/resolv.conf' (the 'reload' plugin applies it).",
+          "next": null,
+          "explain": "'kubernetes' answers *.cluster.local; everything else goes through 'forward'. The 'reload' plugin picks up ConfigMap changes within ~2 minutes (or: kubectl rollout restart deploy coredns -n kube-system)."
+        }
+      }
+    }
+  ]
+}

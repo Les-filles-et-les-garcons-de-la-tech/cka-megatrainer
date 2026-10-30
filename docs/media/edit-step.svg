@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="916" height="700" viewBox="-8 -8 916 700">
+<style>text{font-family:'DejaVu Sans Mono','Menlo','Consolas',monospace;font-size:15px;white-space:pre}</style>
+<rect x="-8" y="-8" width="916" height="700" rx="8" fill="#000000"/>
+<rect x="0" y="0" width="900" height="18" fill="#ffffff"/>
+<text x="9" y="14.04" fill="#000000" font-weight="bold" textLength="594" lengthAdjust="spacingAndGlyphs">CKA MEGATRAINER  Q1/1  STO-001  Storage  ·  step 2/3  ·  score 149</text>
+<rect x="0" y="18" width="738" height="18" fill="#00ff00"/>
+<text x="738" y="32.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">░░</text>
+<text x="765" y="32.04" fill="#00ff00" font-weight="bold" textLength="117" lengthAdjust="spacingAndGlyphs">117.4s / 120s</text>
+<text x="9" y="68.04" fill="#ffffff" font-weight="bold" textLength="198" lengthAdjust="spacingAndGlyphs">A PVC stuck in Pending</text>
+<text x="9" y="86.04" fill="#ffffff" textLength="801" lengthAdjust="spacingAndGlyphs">PVC &#x27;data-pvc&#x27; is Pending. PV &#x27;data-pv&#x27; exists: capacity 10Gi, accessModes ReadWriteOnce,</text>
+<text x="27" y="104.04" fill="#ffffff" textLength="504" lengthAdjust="spacingAndGlyphs">storageClassName &#x27;manual&#x27;. The PVC manifest is pvc.yaml.</text>
+<text x="9" y="140.04" fill="#7f7f7f" textLength="81" lengthAdjust="spacingAndGlyphs">│ Events:</text>
+<text x="9" y="158.04" fill="#7f7f7f" textLength="495" lengthAdjust="spacingAndGlyphs">│   Warning  FailedBinding  persistentvolume-controller</text>
+<text x="9" y="176.04" fill="#7f7f7f" textLength="783" lengthAdjust="spacingAndGlyphs">│            no persistent volumes available for this claim and no storage class is set</text>
+<text x="9" y="212.04" fill="#00ffff" font-weight="bold" textLength="882" lengthAdjust="spacingAndGlyphs">Step 2 - The claim asks for more than the PV offers (size AND access mode). Type the right snippet</text>
+<text x="27" y="230.04" fill="#00ffff" font-weight="bold" textLength="297" lengthAdjust="spacingAndGlyphs">over the wrong lines of pvc.yaml.</text>
+<text x="0" y="266.04" fill="#00ffff" textLength="594" lengthAdjust="spacingAndGlyphs">┌ pvc.yaml ──────────────────────────────────────────────────────┐</text>
+<text x="594" y="266.04" fill="#ffff00" textLength="306" lengthAdjust="spacingAndGlyphs">┌ Options: type one ─────────────┐</text>
+<text x="0" y="284.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="18" y="284.04" fill="#ffffff" textLength="126" lengthAdjust="spacingAndGlyphs">apiVersion: v1</text>
+<text x="585" y="284.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="284.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="612" y="284.04" fill="#ffff00" font-weight="bold" textLength="18" lengthAdjust="spacingAndGlyphs">A)</text>
+<text x="639" y="284.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">··</text>
+<text x="657" y="284.04" fill="#ffffff" textLength="108" lengthAdjust="spacingAndGlyphs">accessModes:</text>
+<text x="891" y="284.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="302.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="18" y="302.04" fill="#ffffff" textLength="243" lengthAdjust="spacingAndGlyphs">kind: PersistentVolumeClaim</text>
+<text x="585" y="302.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="302.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="639" y="302.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">··</text>
+<text x="657" y="302.04" fill="#ffffff" textLength="135" lengthAdjust="spacingAndGlyphs">- ReadWriteOnce</text>
+<text x="891" y="302.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="320.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="18" y="320.04" fill="#ffffff" textLength="81" lengthAdjust="spacingAndGlyphs">metadata:</text>
+<text x="585" y="320.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="320.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="639" y="320.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">··</text>
+<text x="657" y="320.04" fill="#ffffff" textLength="90" lengthAdjust="spacingAndGlyphs">resources:</text>
+<text x="891" y="320.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="338.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="36" y="338.04" fill="#ffffff" textLength="126" lengthAdjust="spacingAndGlyphs">name: data-pvc</text>
+<text x="585" y="338.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="338.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="639" y="338.04" fill="#7f7f7f" textLength="36" lengthAdjust="spacingAndGlyphs">····</text>
+<text x="675" y="338.04" fill="#ffffff" textLength="63" lengthAdjust="spacingAndGlyphs">limits:</text>
+<text x="891" y="338.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="356.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="18" y="356.04" fill="#ffffff" textLength="45" lengthAdjust="spacingAndGlyphs">spec:</text>
+<text x="585" y="356.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="356.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="639" y="356.04" fill="#7f7f7f" textLength="54" lengthAdjust="spacingAndGlyphs">······</text>
+<text x="693" y="356.04" fill="#ffffff" textLength="117" lengthAdjust="spacingAndGlyphs">storage: 10Gi</text>
+<text x="891" y="356.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="374.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="36" y="374.04" fill="#ffffff" textLength="216" lengthAdjust="spacingAndGlyphs">storageClassName: manual</text>
+<text x="585" y="374.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="374.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="374.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="392.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="36" y="392.04" fill="#ffffff" textLength="108" lengthAdjust="spacingAndGlyphs">accessModes:</text>
+<text x="585" y="392.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="392.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="612" y="392.04" fill="#ffff00" font-weight="bold" textLength="18" lengthAdjust="spacingAndGlyphs">B)</text>
+<text x="639" y="392.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">··</text>
+<text x="657" y="392.04" fill="#ffffff" textLength="108" lengthAdjust="spacingAndGlyphs">accessModes:</text>
+<text x="891" y="392.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="410.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="36" y="410.04" fill="#ffffff" textLength="135" lengthAdjust="spacingAndGlyphs">- ReadWriteOnce</text>
+<text x="585" y="410.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="410.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="639" y="410.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">··</text>
+<text x="657" y="410.04" fill="#ffffff" textLength="135" lengthAdjust="spacingAndGlyphs">- ReadWriteMany</text>
+<text x="891" y="410.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="428.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="36" y="428.04" fill="#ffffff" textLength="90" lengthAdjust="spacingAndGlyphs">resources:</text>
+<text x="585" y="428.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="428.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="639" y="428.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">··</text>
+<text x="657" y="428.04" fill="#ffffff" textLength="90" lengthAdjust="spacingAndGlyphs">resources:</text>
+<text x="891" y="428.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="446.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="54" y="446.04" fill="#ffffff" textLength="81" lengthAdjust="spacingAndGlyphs">requests:</text>
+<text x="585" y="446.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="446.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="639" y="446.04" fill="#7f7f7f" textLength="36" lengthAdjust="spacingAndGlyphs">····</text>
+<text x="675" y="446.04" fill="#ffffff" textLength="81" lengthAdjust="spacingAndGlyphs">requests:</text>
+<text x="891" y="446.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="464.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="72" y="464.04" fill="#ffffff" textLength="108" lengthAdjust="spacingAndGlyphs">storage: 10G</text>
+<text x="585" y="464.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="464.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="639" y="464.04" fill="#7f7f7f" textLength="54" lengthAdjust="spacingAndGlyphs">······</text>
+<text x="693" y="464.04" fill="#ffffff" textLength="117" lengthAdjust="spacingAndGlyphs">storage: 10Gi</text>
+<text x="891" y="464.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="482.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="585" y="482.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="482.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="482.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="500.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="585" y="500.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="500.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="612" y="500.04" fill="#ffff00" font-weight="bold" textLength="18" lengthAdjust="spacingAndGlyphs">C)</text>
+<text x="639" y="500.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">··</text>
+<text x="657" y="500.04" fill="#ffffff" textLength="108" lengthAdjust="spacingAndGlyphs">accessModes:</text>
+<text x="891" y="500.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="518.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="585" y="518.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="518.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="639" y="518.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">··</text>
+<text x="657" y="518.04" fill="#ffffff" textLength="135" lengthAdjust="spacingAndGlyphs">- ReadWriteOnce</text>
+<text x="891" y="518.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="536.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="585" y="536.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="536.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="639" y="536.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">··</text>
+<text x="657" y="536.04" fill="#ffffff" textLength="90" lengthAdjust="spacingAndGlyphs">resources:</text>
+<text x="891" y="536.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="554.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="585" y="554.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="554.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="639" y="554.04" fill="#7f7f7f" textLength="36" lengthAdjust="spacingAndGlyphs">····</text>
+<text x="675" y="554.04" fill="#ffffff" textLength="81" lengthAdjust="spacingAndGlyphs">requests:</text>
+<text x="891" y="554.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="572.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="585" y="572.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="572.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="639" y="572.04" fill="#7f7f7f" textLength="54" lengthAdjust="spacingAndGlyphs">······</text>
+<text x="693" y="572.04" fill="#ffffff" textLength="117" lengthAdjust="spacingAndGlyphs">storage: 10Gi</text>
+<text x="891" y="572.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="590.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="585" y="590.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="590.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="590.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="608.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="585" y="608.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="608.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="608.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="626.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="585" y="626.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="626.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="626.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="644.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="585" y="644.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="594" y="644.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="644.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="662.04" fill="#00ffff" textLength="594" lengthAdjust="spacingAndGlyphs">└────────────────────────────────────────────────────────────────┘</text>
+<text x="594" y="662.04" fill="#ffff00" textLength="306" lengthAdjust="spacingAndGlyphs">└────────────────────────────────┘</text>
+<text x="0" y="680.04" fill="#7f7f7f" textLength="756" lengthAdjust="spacingAndGlyphs">Ctrl+D: submit   Enter: new line   Tab: 2 spaces   PgUp/PgDn: options   Ctrl+X: skip</text>
+</svg>

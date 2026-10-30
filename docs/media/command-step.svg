@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="916" height="700" viewBox="-8 -8 916 700">
+<style>text{font-family:'DejaVu Sans Mono','Menlo','Consolas',monospace;font-size:15px;white-space:pre}</style>
+<rect x="-8" y="-8" width="916" height="700" rx="8" fill="#000000"/>
+<rect x="0" y="0" width="900" height="18" fill="#ffffff"/>
+<text x="9" y="14.04" fill="#000000" font-weight="bold" textLength="702" lengthAdjust="spacingAndGlyphs">CKA MEGATRAINER  Q1/1  NET-002  Services &amp; Networking  ·  step 1/2  ·  score 0</text>
+<rect x="0" y="18" width="729" height="18" fill="#00ff00"/>
+<text x="729" y="32.04" fill="#7f7f7f" textLength="36" lengthAdjust="spacingAndGlyphs">░░░░</text>
+<text x="783" y="32.04" fill="#00ff00" font-weight="bold" textLength="99" lengthAdjust="spacingAndGlyphs">85.4s / 90s</text>
+<text x="9" y="68.04" fill="#ffffff" font-weight="bold" textLength="351" lengthAdjust="spacingAndGlyphs">Expose a Deployment outside the cluster</text>
+<text x="9" y="86.04" fill="#ffffff" textLength="882" lengthAdjust="spacingAndGlyphs">Deployment &#x27;web&#x27; (label app=web) listens on container port 8080. Expose it as Service &#x27;web-svc&#x27; on</text>
+<text x="27" y="104.04" fill="#ffffff" textLength="459" lengthAdjust="spacingAndGlyphs">port 80, reachable from outside through every node.</text>
+<text x="9" y="140.04" fill="#00ffff" font-weight="bold" textLength="369" lengthAdjust="spacingAndGlyphs">Step 1 - Create the Service imperatively.</text>
+<text x="27" y="158.04" fill="#ffffff" textLength="828" lengthAdjust="spacingAndGlyphs">A) kubectl expose deployment web --name=web-svc --port=80 --target-port=8080 --type=NodePort</text>
+<text x="27" y="176.04" fill="#ffffff" textLength="828" lengthAdjust="spacingAndGlyphs">B) kubectl expose deployment web --name=web-svc --port=8080 --target-port=80 --type=NodePort</text>
+<text x="27" y="194.04" fill="#ffffff" textLength="864" lengthAdjust="spacingAndGlyphs">C) kubectl expose deployment web --name=web-svc --port=80 --target-port=8080 --type=LoadBalancer</text>
+<text x="27" y="212.04" fill="#ffffff" textLength="684" lengthAdjust="spacingAndGlyphs">D) kubectl expose deployment web --name=web-svc --port=80 --target-port=8080</text>
+<text x="0" y="248.04" fill="#00ffff" textLength="900" lengthAdjust="spacingAndGlyphs">┌ Your answer ─────────────────────────────────────────────────────────────────────────────────────┐</text>
+<text x="0" y="266.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="18" y="266.04" fill="#ffffff" textLength="540" lengthAdjust="spacingAndGlyphs">kubectl expose deployment web --name=web-svc --port=80 --tar</text>
+<text x="891" y="266.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="284.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="284.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="302.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="302.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="320.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="320.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="338.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="338.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="356.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="356.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="374.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="374.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="392.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="392.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="410.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="410.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="428.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="428.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="446.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="446.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="464.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="464.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="482.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="482.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="500.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="500.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="518.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="518.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="536.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="536.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="554.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="554.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="572.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="572.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="590.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="590.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="608.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="608.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="626.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="626.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="644.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="891" y="644.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0" y="662.04" fill="#00ffff" textLength="900" lengthAdjust="spacingAndGlyphs">└──────────────────────────────────────────────────────────────────────────────────────────────────┘</text>
+<text x="0" y="680.04" fill="#7f7f7f" textLength="567" lengthAdjust="spacingAndGlyphs">Enter: submit   \+Enter: new line   Ctrl+X: skip   Ctrl+C: quit</text>
+</svg>
