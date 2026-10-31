@@ -107,6 +107,10 @@ troubleshooting-x4k2p   1/3     CrashLoopBackOff  2         6m40s
 
 - the right option carries a **green ✔** while you answer (a command or a snippet), so you see what
   to type, and you still have to type it, against the clock;
+- every answer page also explains **why each wrong option fails**, even after a correct answer, and a
+  short line invites you to say it out loud before moving on;
+- the recap adds **why it matters** (what goes wrong in real life, when you failed the question) and
+  **think of it like this** (an everyday analogy), next to the exam tip;
 - every answer page, and the recap, ends with **links to the official documentation** of the
   question (kubernetes.io, helm.sh for Helm questions), so you can read the details. Each address
   is on its own line: click it (Cmd+click on macOS, Ctrl+click on most Linux terminals,

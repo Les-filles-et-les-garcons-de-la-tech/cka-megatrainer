@@ -33,6 +33,7 @@ BASE_POINTS = 100
 SPEED_BONUS = 50
 LABELS = "ABCDEFGH"
 MIN_W, MIN_H = 70, 20
+MAX_STORY = 150  # stakes / analogy: one short line each
 
 PASTE_BURST = 4        # keys arriving together = pasted, not typed
 PASTE_QUARANTINE = 0.3  # seconds during which the tail of a paste is still dropped
@@ -40,6 +41,8 @@ PASTE_START, PASTE_END = -200, -201  # bracketed-paste markers (ints: the editor
 
 A = {}  # curses attributes, filled by init_colors()
 SETTINGS = {"allow_paste": False, "silent": False, "learn": False}
+PRIME_OK = "Right. Before you move on: say why each of the others fails."
+PRIME_MISS = "Good place to miss it: here a mistake is free; in production it costs sleep."
 
 
 # --------------------------------------------------------------------------
@@ -86,6 +89,9 @@ def validate_question(q, domains, seen):
     for d in q.get("docs", []):
         if not d.get("title") or not str(d.get("url", "")).startswith("https://"):
             fail(f"docs entries need a 'title' and an https 'url': {d}")
+    for key in ("stakes", "analogy"):
+        if key in q and not (isinstance(q[key], str) and 0 < len(q[key]) <= MAX_STORY):
+            fail(f"'{key}' must be a short text (<= {MAX_STORY} characters)")
     steps = q["steps"]
     if q["start"] not in steps:
         fail(f"start step '{q['start']}' does not exist")
@@ -531,7 +537,7 @@ def step_body(q, step, options, width, budget):
             else:
                 tail += expand([(f"  {label}) {o['cmd']}", A["normal"], True)], width)
     gap = [("", 0)] if context else []
-    for head in (title + scenario, title):
+    for head in (title + [("", 0)] + scenario, title):
         body = head + gap + context + tail
         if len(body) <= budget:
             return body
@@ -687,6 +693,18 @@ def run_step(stdscr, title, q, step, options):
                 return ed.text(), time.monotonic() - start, action, pastes
 
 
+def variant_lines(label, option, why_attr, why=None, text_attr=None):
+    """One variant with its explanation: the text the player saw, then why. The explanation
+    refers to a variant, so the variant has to be on the page too."""
+    if "cmd" in option:
+        body = [option["cmd"]]
+    else:  # a snippet: leading spaces as '·', like the options panel
+        body = ["·" * (len(ln) - len(ln.lstrip(" "))) + ln.lstrip(" ") for ln in lines_of(option["snippet"])]
+    lines = [(f"  {label}) {ln}" if i == 0 else f"     {ln}", text_attr or A["normal"] | A["bold"], True)
+             for i, ln in enumerate(body)]
+    return lines + [("          → " + (why or option["why"]), why_attr), ("", 0)]
+
+
 def docs_lines(docs):
     """Learn mode: the Kubernetes documentation of the question, one bare URL per line so the
     terminal can open it with a click (Cmd/Ctrl+click)."""
@@ -712,6 +730,12 @@ def feedback_lines(step, options, text, res, elapsed, pts, pastes=0, docs=None):
     if pastes:
         lines.append((f"⛔ {pastes} paste attempt(s) blocked", A["red"]))
     lines.append(("", 0))
+    lines += [("Question:", A["cyan"] | A["bold"]), ("  " + step["prompt"], A["cyan"])]
+    if step.get("context"):  # the output the options refer to
+        lines += [("  │ " + ln, A["normal"], True) for ln in as_text(step["context"]).split("\n")]
+    lines.append(("", 0))
+    if SETTINGS["learn"]:  # affective priming + self-explanation, before the facts
+        lines += [(PRIME_OK if res["ok"] else PRIME_MISS, A["yellow"]), ("", 0)]
 
     if step["type"] == "command":
         good = correct_option(step)
@@ -758,13 +782,20 @@ def feedback_lines(step, options, text, res, elapsed, pts, pastes=0, docs=None):
             lines.append(("", 0))
 
     if step.get("explain"):
-        lines += [("Why:", A["cyan"] | A["bold"]), ("  " + step["explain"], A["normal"])]
-    if not res["ok"]:
+        if res["ok"]:  # same form as the traps: the answer, then why it is right
+            lines += [("Why this is right:", A["green"] | A["bold"])]
+            lines += variant_lines(LABELS[options.index(correct_option(step))], correct_option(step),
+                                   A["green"], why=step["explain"], text_attr=A["green"] | A["bold"])
+        else:
+            lines += [("Why:", A["cyan"] | A["bold"]), ("  " + step["explain"], A["normal"])]
+    if not res["ok"] or SETTINGS["learn"]:  # learn mode also explains the traps you avoided
         others = [(LABELS[i], o) for i, o in enumerate(options)
                   if not o.get("correct") and o is not res.get("option")]
         if others:
-            lines += [("", 0), ("The other traps:", A["dim"] | A["bold"])]
-            lines += [(f"  {lab}) {o['why']}", A["dim"]) for lab, o in others]
+            head = "The other traps:" if not res["ok"] else "Why not the others:"
+            lines += [("", 0), (head, A["yellow"] | A["bold"])]
+            for lab, o in others:
+                lines += variant_lines(lab, o, A["yellow"])
     return lines + docs_lines(docs)
 
 
@@ -772,6 +803,8 @@ def recap_lines(q, earned, solved):
     lines = [("✔ Question solved" if solved else "✘ Question not solved",
               (A["green"] if solved else A["red"]) | A["bold"]),
              (f"{earned} points", A["dim"]), ("", 0),
+             ("The mission:", A["cyan"] | A["bold"]), ("  " + q["title"], A["bold"]),
+             ("  " + q["scenario"], A["normal"]), ("", 0),
              ("The full solution path:", A["bold"])]
     for n, (_, step) in enumerate(correct_path(q), 1):
         if step["type"] == "command":
@@ -781,6 +814,10 @@ def recap_lines(q, earned, solved):
                           + step.get("recap", step["prompt"]), A["green"]))
     if q.get("tip"):
         lines += [("", 0), ("Exam tip:", A["cyan"] | A["bold"]), ("  " + q["tip"], A["normal"])]
+    if q.get("stakes") and not solved:  # a wrong step ends the question: this is the moment it lands
+        lines += [("", 0), ("Why it matters:", A["yellow"] | A["bold"]), ("  " + q["stakes"], A["normal"])]
+    if q.get("analogy"):
+        lines += [("", 0), ("Think of it like this:", A["cyan"] | A["bold"]), ("  " + q["analogy"], A["normal"])]
     return lines + docs_lines(q.get("docs"))
 
 

@@ -45,6 +45,8 @@ multiple choice where the player must **type** the chosen answer.
     {"title": "Using RBAC Authorization",
      "url": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"}
   ],
+  "stakes": "what goes wrong in real life if you get this wrong (shown when the question fails)",
+  "analogy": "a familiar comparison that makes the idea stick (shown in the recap)",
   "start": "s1",
   "steps": {
     "s1": {
@@ -95,6 +97,21 @@ Rules (`./cka_trainer.py --validate` enforces most of them):
   address, link its parent concept page instead. `make check-links` fetches every link and
   reports the ones that moved or broke: run it before submitting and, when it flags a link,
   replace it with the new address.
+- **Teaching lines** (`stakes` and `analogy`, required for new questions, one line each, at most 150
+  characters). `stakes` is a concrete, slightly uncomfortable consequence in the real world ("one
+  typo and kubectl itself is dead"), not a generic warning. `analogy` explains the mechanism by a
+  comparison from everyday life ("a Role is a key card for one floor"). Both must be true to the
+  question: check them against the `tip`, and keep the analogy faithful to the mechanism, since a
+  cute but wrong picture teaches the wrong thing. They appear in the recap, next to the `tip`.
+- **`explain`** answers "why is this the right choice?", not "what is the next command". Give the
+  reason or the mechanism that makes the answer correct, tied to the scenario, and name what would
+  go wrong with the closest alternative; follow-up tips and verification hints come after the
+  reason, not instead of it. Keep it to about 330 characters (a test enforces it) and check every
+  technical claim against the documentation, including version-specific ones. Do not quote numbers
+  that depend on a history the player has not seen (such as "it comes back as revision 5").
+- **Wrong options carry the teaching**: each `why` should say what would actually happen with that
+  command (the concrete symptom), not just that it is wrong. Learn mode shows the `why` of every
+  wrong option on every answer page, even after a correct answer, so write them as small lessons.
 - Keep snippets short (≤ 8 lines, 3–4 options): they share the screen with the editor.
 - Keep the library in the CKA proportions: **one question per percent of weight** per 100 questions
   (Troubleshooting 30 %, Cluster Architecture 25 %, Services & Networking 20 %, Workloads &
@@ -102,7 +119,7 @@ Rules (`./cka_trainer.py --validate` enforces most of them):
   batches (the smallest exact batch is 20: 6/5/4/3/2) and update `test_hundred_questions_in_cka_proportions`.
 - **Step by step**: (1) pick the domain and the next free id, e.g. `STO-011`; (2) write the
   question in a fragment file `{"questions": [...]}`, copying the shape above (a first step that
-  generates or inspects, then the fix, then the verification, 2–4 steps); (3) add its `docs`;
+  generates or inspects, then the fix, then the verification, 2–4 steps); (3) add its `docs`, `stakes` and `analogy`;
   (4) check it with `tools/validate_fragment.py`; (5) merge it with `tools/merge_questions.py`,
   which also puts `questions.json` in house style; (6) run `make test`, `make check-links`,
   then play it with `./cka_trainer.py --learn --id STO-011` to see that the green check marks

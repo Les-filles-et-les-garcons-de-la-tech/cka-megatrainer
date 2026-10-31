@@ -29,6 +29,23 @@ class Database(unittest.TestCase):
                 # one URL per line in the 100-column game window, so the terminal can click it
                 self.assertLessEqual(len(d["url"]) + 2, 97, d["url"])
 
+    def test_every_question_teaches_with_stakes_and_an_analogy(self):
+        for q in QUESTIONS:
+            for key in ("stakes", "analogy"):
+                self.assertTrue(q.get(key), (q["id"], key))
+                self.assertLessEqual(len(q[key]), t.MAX_STORY, (q["id"], key))
+
+    def test_explanations_stay_concise(self):
+        for q in QUESTIONS:
+            for sid, s in q["steps"].items():
+                self.assertLessEqual(len(s["explain"]), 330, (q["id"], sid))
+
+    def test_overlong_story_rejected(self):
+        q = copy.deepcopy(BY_ID["CLU-001"])
+        q["stakes"] = "x" * (t.MAX_STORY + 1)
+        with self.assertRaises(ValueError):
+            t.validate_question(q, DOMAINS, set())
+
     def test_bad_docs_rejected(self):
         q = copy.deepcopy(BY_ID["NET-001"])
         q["docs"] = [{"title": "no url"}]
@@ -277,6 +294,88 @@ class LearnMode(unittest.TestCase):
         self.assertEqual(urls, [d["url"] for d in q["docs"]])
         recap = [x[0].strip() for x in t.recap_lines(q, 100, True) if "https://" in x[0]]
         self.assertEqual(recap, urls)
+
+
+class Pedagogy(unittest.TestCase):
+    """Answer pages: stakes on a miss, the traps explained, the analogy in the recap."""
+    def setUp(self):
+        t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "bold", "dim", "rev", "normal")})
+        self.addCleanup(t.SETTINGS.update, learn=False)
+        self.q = BY_ID["CLU-001"]
+        self.step = self.q["steps"][self.q["start"]]
+
+    def page(self, typed, learn):
+        t.SETTINGS["learn"] = learn
+        res = t.judge(self.step, typed, "submit")
+        lines = t.feedback_lines(self.step, self.step["options"], typed, res, 5.0, 100)
+        return "\n".join(x[0] for x in lines)
+
+    def test_stakes_in_the_recap_of_a_failed_question_only(self):
+        for learn in (False, True):
+            t.SETTINGS["learn"] = learn
+            failed = "\n".join(x[0] for x in t.recap_lines(self.q, 0, False))
+            solved = "\n".join(x[0] for x in t.recap_lines(self.q, 100, True))
+            self.assertIn(self.q["stakes"], failed)
+            self.assertNotIn(self.q["stakes"], solved)
+
+    def test_traps_explained_after_a_correct_answer_only_in_learn_mode(self):
+        good = t.correct_option(self.step)["cmd"]
+        self.assertNotIn("Why not the others", self.page(good, learn=False))
+        page = self.page(good, learn=True)
+        self.assertIn("Why not the others", page)
+        for o in self.step["options"]:
+            if not o.get("correct"):
+                self.assertIn(o["why"], page)
+                self.assertIn(o["cmd"], page)  # the variant itself, not only its explanation
+
+    def test_answer_page_repeats_the_question(self):
+        for q in QUESTIONS:
+            for s in q["steps"].values():
+                res = t.judge(s, "", "submit")
+                text = "\n".join(x[0] for x in t.feedback_lines(s, s["options"], "", res, 1.0, 0))
+                self.assertIn(s["prompt"], text, q["id"])
+                for ln in t.as_text(s.get("context", "")).split("\n"):
+                    self.assertIn(ln, text, q["id"])
+
+    def test_correct_page_shows_the_answer_with_its_explanation(self):
+        for q in QUESTIONS:
+            for s in q["steps"].values():
+                good = t.correct_option(s)
+                typed = good.get("cmd") or t.apply_snippet(s, t.lines_of(good["snippet"]))
+                res = t.judge(s, typed, "submit")
+                text = [x[0] for x in t.feedback_lines(s, s["options"], typed, res, 1.0, 0)]
+                label = t.LABELS[s["options"].index(good)]
+                at = next(n for n, ln in enumerate(text) if ln.startswith(f"  {label}) "))
+                self.assertEqual(next(ln for ln in text[at:] if "→" in ln).strip(), "→ " + s["explain"], q["id"])
+
+    def test_each_explanation_follows_its_own_variant(self):
+        t.SETTINGS["learn"] = True
+        for q in QUESTIONS:
+            for s in q["steps"].values():
+                res = t.judge(s, "", "submit")
+                text = [x[0] for x in t.feedback_lines(s, s["options"], "", res, 1.0, 0)]
+                for i, o in enumerate(s["options"]):
+                    if o.get("correct"):
+                        continue
+                    at = next(n for n, ln in enumerate(text) if ln.startswith(f"  {t.LABELS[i]}) "))
+                    nxt = text[at + 1:]
+                    first = next(ln for ln in nxt if ln.strip().startswith("→"))
+                    self.assertEqual(first.strip(), "→ " + o["why"], (q["id"], t.LABELS[i]))
+
+    def test_priming_line_only_in_learn_mode(self):
+        self.assertNotIn(t.PRIME_MISS, self.page("kubectl get pods", learn=False))
+        self.assertIn(t.PRIME_MISS, self.page("kubectl get pods", learn=True))
+        self.assertIn(t.PRIME_OK, self.page(t.correct_option(self.step)["cmd"], learn=True))
+
+    def test_recap_reminds_the_mission(self):
+        text = "\n".join(x[0] for x in t.recap_lines(self.q, 100, True))
+        self.assertIn(self.q["title"], text)
+        self.assertIn(self.q["scenario"], text)
+
+    def test_recap_carries_the_analogy(self):
+        t.SETTINGS["learn"] = False
+        text = "\n".join(x[0] for x in t.recap_lines(self.q, 100, True))
+        self.assertIn(self.q["analogy"], text)
 
 
 class EditorKeys(unittest.TestCase):

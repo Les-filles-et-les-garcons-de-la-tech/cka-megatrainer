@@ -33,7 +33,7 @@ for q in qs:
         continue
     if q["domain"] != DOMAIN[prefix]:
         errors.append(f"{qid}: domain must be '{DOMAIN[prefix]}'")
-    for k in ("topic", "tip", "difficulty", "docs"):
+    for k in ("topic", "tip", "difficulty", "docs", "stakes", "analogy"):
         if k not in q:
             errors.append(f"{qid}: missing '{k}'")
     path_steps = t.correct_path(q)
