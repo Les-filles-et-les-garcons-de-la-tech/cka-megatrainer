@@ -4,7 +4,8 @@
 # terminal is available (or when CKA_INLINE=1).
 #
 #   RETRO_FONT  "VT323" (default, 80s DEC terminal) or "Press Start 2P" (NES arcade)
-#   RETRO_SIZE  font size in points (default: 15 for VT323, 10 for Press Start 2P)
+#   RETRO_SIZE  font size in points (default: 15 for VT323, 10 for Press Start 2P;
+#               on macOS 24 and 16, as the window is sized in cells, 100x38)
 #   RETRO_TERM  force one of: foot kitty alacritty xterm
 # All other arguments are passed to cka_trainer.py.
 cd "$(dirname "$0")/.." || exit 1
@@ -25,9 +26,11 @@ inline() { exec $GAME "$@"; }
 # macOS: kitty or alacritty (installed with Homebrew or dragged into /Applications)
 if [ "$(uname -s)" = Darwin ]; then
   case "$FONT" in
-    "Press Start 2P") FILE=PressStart2P-Regular.ttf ;;
-    *)                FILE=VT323-Regular.ttf ;;
+    "Press Start 2P") FILE=PressStart2P-Regular.ttf; MAC_SIZE=16 ;;
+    *)                FILE=VT323-Regular.ttf; MAC_SIZE=24 ;;
   esac
+  # Retina text looks small next to the system terminal: bigger default than on Linux
+  SIZE=${RETRO_SIZE:-$MAC_SIZE}
   if [ ! -f "$HOME/Library/Fonts/$FILE" ] && [ ! -f "/Library/Fonts/$FILE" ]; then
     echo "Font '$FONT' is not installed - run 'make install-retro'. Starting in this terminal." >&2
     sleep 2

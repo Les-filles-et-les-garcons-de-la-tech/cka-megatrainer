@@ -145,6 +145,7 @@ make start-exam-silent                   # no music / sound effects
 make start-exam-here                     # in the current terminal
 make uninstall                           # reset setup-installed components, caches and builds
 RETRO_FONT="Press Start 2P" make start-exam   # NES arcade font instead of VT323
+RETRO_SIZE=30 make start-exam                # bigger or smaller font (points)
 make test                                # validate questions.json + unit tests
 make check-links                         # check the documentation links (needs network)
 make help                                # all targets
@@ -238,6 +239,9 @@ Apple Silicon Macs and other terminals are welcome:
   and sounds play through `afplay`, built into macOS. The single-file `cka-megatrainer.pyz` is the
   easiest way in.
 - **Retro font window**: `make start-exam` puts missing VT323 and Press Start 2P fonts in `~/Library/Fonts`.
+  The window is larger than on Linux by default (VT323 at 24 pt, Press Start 2P at 16 pt, instead of 15 and 10),
+  since Retina text looks small. It is sized in cells (100x38), so a bigger font means a bigger window:
+  use `RETRO_SIZE=20` if it does not fit your screen, or `RETRO_SIZE=30` for larger text.
   When Homebrew is available, it also installs Kitty if neither Kitty nor Alacritty is found.
   Terminal and iTerm2 cannot be given a font for one window, so `make start-exam` opens the game in
   **kitty** or **alacritty** if one is installed (`brew install --cask kitty`), from Homebrew or
