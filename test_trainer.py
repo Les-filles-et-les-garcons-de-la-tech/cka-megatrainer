@@ -108,6 +108,33 @@ class Judge(unittest.TestCase):
         self.assertIsNone(t.judge(step, "", "timeout")["next"])
 
 
+class Exam(unittest.TestCase):
+    # a pool shaped like the 100-question target: 25/15/10/20/30
+    POOL = [{"id": f"{d}-{i}", "domain": d} for d, n in
+            [("cluster", 25), ("workloads", 15), ("storage", 10), ("networking", 20), ("troubleshooting", 30)]
+            for i in range(n)]
+
+    def test_plan_sums_and_follows_weights(self):
+        for n in range(t.EXAM_MIN, t.EXAM_MAX + 1):
+            plan = t.exam_plan(DOMAINS, n)
+            self.assertEqual(sum(plan.values()), n)
+            for d, k in plan.items():  # never more than one question away from the exact share
+                self.assertLess(abs(k - n * DOMAINS[d]["weight"] / 100), 1, (n, d))
+            self.assertEqual(plan["troubleshooting"], max(plan.values()))  # ties allowed (n=19: 5 and 5)
+
+    def test_exam_size_is_random_between_15_and_20(self):
+        import random
+        sizes = {len(t.pick_exam(self.POOL, DOMAINS, random.Random(seed))) for seed in range(60)}
+        self.assertEqual(sizes, set(range(t.EXAM_MIN, t.EXAM_MAX + 1)))
+
+    def test_exam_questions_are_distinct_and_in_proportion(self):
+        import random
+        exam = t.pick_exam(self.POOL, DOMAINS, random.Random(1), n=20)
+        self.assertEqual(len({q["id"] for q in exam}), 20)
+        counts = {d: sum(q["domain"] == d for q in exam) for d in DOMAINS}
+        self.assertEqual(counts, t.exam_plan(DOMAINS, 20))
+
+
 class Finale(unittest.TestCase):
     def result(self, qid, ok_steps, solved):
         q = BY_ID[qid]

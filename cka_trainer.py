@@ -24,6 +24,7 @@ os.environ.setdefault("ESCDELAY", "25")
 DEFAULT_DB = Path(__file__).with_name("questions.json")
 MAX_TIME = 120
 PASS_PERCENT = 66  # CKA passing score
+EXAM_MIN, EXAM_MAX = 15, 20  # the CKA has 15-20 tasks
 BASE_POINTS = 100
 SPEED_BONUS = 50
 LABELS = "ABCDEFGH"
@@ -797,13 +798,38 @@ def rules_lines():
     ]
 
 
+def exam_plan(domains, n):
+    """Questions per domain for an n-question exam, proportional to the CKA weights
+    (largest remainder; ties go to the heavier domain)."""
+    total = sum(v["weight"] for v in domains.values())
+    raw = {d: n * v["weight"] / total for d, v in domains.items()}
+    plan = {d: int(x) for d, x in raw.items()}
+    extra = n - sum(plan.values())
+    for d in sorted(raw, key=lambda d: (raw[d] - plan[d], domains[d]["weight"]), reverse=True)[:extra]:
+        plan[d] += 1
+    return plan
+
+
+def pick_exam(questions, domains, rnd=random, n=None):
+    """A CKA-like exam: 15-20 questions (random unless n is given), domains in proportion."""
+    n = n or rnd.randint(EXAM_MIN, EXAM_MAX)
+    picked = []
+    for d, k in exam_plan(domains, n).items():
+        pool = [q for q in questions if q["domain"] == d]
+        picked += rnd.sample(pool, min(k, len(pool)))
+    rnd.shuffle(picked)
+    return picked
+
+
 def menu(stdscr, domains, questions, sound):
-    """Arcade title screen. Returns a domain id, '' for all, or None to quit."""
+    """Arcade title screen. Returns 'exam', a domain id, '' for all, or None to quit."""
     counts = {d: sum(q["domain"] == d for q in questions) for d in domains}
-    items = [("", "ALL DOMAINS", f"{len(questions)}Q")]
-    items += [(d, v["name"].split(",")[0].upper(), f"{counts[d]}Q {v['weight']:>2}%")
+    share = exam_plan(domains, EXAM_MAX)  # e.g. storage: 2 of a 20-question exam
+    items = [("exam", "CKA EXAM", f"{EXAM_MIN}-{EXAM_MAX}Q")]
+    items += [(d, v["name"].split(",")[0].upper(), f"{share[d]}/{EXAM_MAX} {v['weight']:>2}%")
               for d, v in domains.items() if counts[d]]
-    items += [("help", "HOW TO PLAY", ""), (None, "QUIT", "")]
+    items += [("", "ALL QUESTIONS", f"{len(questions)}Q"),
+              ("help", "HOW TO PLAY", ""), (None, "QUIT", "")]
     sel = 0
     while True:
         sel = retro.title_screen(stdscr, items, sel, sound, read_key)
@@ -876,15 +902,20 @@ def play(stdscr, domains, questions, args):
 
 
 def session(stdscr, domains, questions, args, sound):
-    if not args.id and args.domain is None:
+    choice = "exam" if args.exam else None
+    if not args.id and args.domain is None and not args.exam:
         choice = menu(stdscr, domains, questions, sound)
         if choice is None:
             return []
-        questions = [q for q in questions if not choice or q["domain"] == choice]
-    if args.shuffle:
-        random.shuffle(questions)
-    if args.count:
-        questions = questions[:args.count]
+    if choice == "exam":
+        questions = pick_exam(questions, domains, n=args.count)
+    else:
+        if choice:
+            questions = [q for q in questions if q["domain"] == choice]
+        if args.shuffle:
+            random.shuffle(questions)
+        if args.count:
+            questions = questions[:args.count]
     results, score = [], 0
     for n, q in enumerate(questions, 1):
         r = ask_question(stdscr, q, n, len(questions), score, domains, sound)
@@ -902,7 +933,9 @@ def main(argv=None):
     ap.add_argument("--db", default=DEFAULT_DB, help="question database (JSON)")
     ap.add_argument("--domain", help="only this domain id (skips the menu)")
     ap.add_argument("--id", action="append", help="only this question id (repeatable)")
-    ap.add_argument("--count", type=int, help="maximum number of questions")
+    ap.add_argument("--exam", action="store_true",
+                    help=f"CKA-like exam: {EXAM_MIN}-{EXAM_MAX} random questions in domain proportions (skips the menu)")
+    ap.add_argument("--count", type=int, help="maximum number of questions (with --exam: the exam size)")
     ap.add_argument("--no-shuffle", dest="shuffle", action="store_false", help="keep database order")
     ap.add_argument("--allow-paste", action="store_true", help="do not block pasted input")
     ap.add_argument("--silent", action="store_true", help="no music or sound effects")
