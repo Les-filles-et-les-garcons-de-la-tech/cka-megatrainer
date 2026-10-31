@@ -20,6 +20,10 @@ from pathlib import Path
 import retro
 
 os.environ.setdefault("ESCDELAY", "25")
+if os.environ.get("TERM") == "xterm-kitty":
+    # kitty's terminfo has `rep` (repeat last char): curses then draws the box borders and the
+    # countdown bar (multi-byte ─ █) as one char + repeat, which kitty renders wrongly
+    os.environ["TERM"] = "xterm-256color"
 
 DEFAULT_DB = Path(__file__).with_name("questions.json")
 MAX_TIME = 120
