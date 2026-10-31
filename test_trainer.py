@@ -11,9 +11,16 @@ EDIT_STEPS = [(q["id"], s) for q in QUESTIONS for s in q["steps"].values() if s[
 
 
 class Database(unittest.TestCase):
-    def test_ten_unique_questions_all_domains(self):
-        self.assertEqual(len(QUESTIONS), 10)
-        self.assertEqual({q["domain"] for q in QUESTIONS}, set(DOMAINS))
+    def test_hundred_questions_in_cka_proportions(self):
+        self.assertEqual(len(QUESTIONS), 100)
+        counts = {d: sum(q["domain"] == d for q in QUESTIONS) for d in DOMAINS}
+        self.assertEqual(counts, {d: v["weight"] for d, v in DOMAINS.items()})  # 1 question per %
+
+    def test_every_question_has_a_tip_and_explained_steps(self):
+        for q in QUESTIONS:
+            self.assertTrue(q.get("tip"), q["id"])
+            for s in q["steps"].values():
+                self.assertTrue(s.get("explain"), q["id"])
 
     def test_duplicate_id_rejected(self):
         seen = {"CLU-001"}
@@ -62,7 +69,7 @@ class Judge(unittest.TestCase):
                     self.assertTrue(t.evaluate_command(s, t.correct_option(s)["cmd"])["ok"], q["id"])
 
     def test_edit_snippets_correct_passes_traps_fail(self):
-        self.assertEqual(len(EDIT_STEPS), 6)
+        self.assertGreaterEqual(len(EDIT_STEPS), 50)
         for qid, step in EDIT_STEPS:
             self.assertFalse(t.evaluate_edit(step, t.as_text(step["prefill"]))["ok"], qid)
             for o in step["options"]:
@@ -169,6 +176,36 @@ class PasteDetection(unittest.TestCase):
         ed.handle(t.PASTE_START, True)
         ed.handle(t.PASTE_END, True)
         self.assertEqual(ed.text(), "")
+
+
+class ScreenFit(unittest.TestCase):
+    """Every step must be playable at 80x24 (the prompt and ALL options visible) and shown
+    in full in the game window (100x38). Mirrors the budget used by draw_step."""
+
+    def setUp(self):
+        t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "bold", "dim", "rev", "normal")})
+
+    def body(self, q, s, h, w):
+        budget = h - 5 - (3 if s["type"] == "command" else 8)
+        lines = [x[0] for x in t.step_body(q, s, s["options"], w - 2, budget)]
+        self.assertLessEqual(len(lines), budget, q["id"])
+        return lines
+
+    def test_every_step_playable_at_80x24(self):
+        for q in QUESTIONS:
+            for s in q["steps"].values():
+                lines = self.body(q, s, 24, 80)
+                self.assertFalse(any("enlarge the terminal" in x for x in lines), q["id"])
+                if s["type"] == "command":
+                    for label in t.LABELS[:len(s["options"])]:
+                        self.assertTrue(any(f"{label}) " in x for x in lines), (q["id"], label))
+
+    def test_every_step_shown_in_full_at_100x38(self):
+        for q in QUESTIONS:
+            for s in q["steps"].values():
+                lines = self.body(q, s, 38, 100)
+                self.assertNotIn("│ …", lines, q["id"])
+                self.assertIn(t.expand([(q["scenario"], 0)], 98)[0][0], lines, q["id"])
 
 
 class EditorKeys(unittest.TestCase):

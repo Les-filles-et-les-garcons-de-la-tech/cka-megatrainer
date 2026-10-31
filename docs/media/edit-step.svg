@@ -2,7 +2,7 @@
 <style>text{font-family:'DejaVu Sans Mono','Menlo','Consolas',monospace;font-size:15px;white-space:pre}</style>
 <rect x="-8" y="-8" width="916" height="700" rx="8" fill="#000000"/>
 <rect x="0" y="0" width="900" height="18" fill="#ffffff"/>
-<text x="9" y="14.04" fill="#000000" font-weight="bold" textLength="594" lengthAdjust="spacingAndGlyphs">CKA MEGATRAINER  Q1/1  STO-001  Storage  ·  step 2/3  ·  score 149</text>
+<text x="9" y="14.04" fill="#000000" font-weight="bold" textLength="594" lengthAdjust="spacingAndGlyphs">CKA MEGATRAINER  Q1/1  STO-001  Storage  ·  step 2/3  ·  score 148</text>
 <rect x="0" y="18" width="738" height="18" fill="#00ff00"/>
 <text x="738" y="32.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">░░</text>
 <text x="765" y="32.04" fill="#00ff00" font-weight="bold" textLength="117" lengthAdjust="spacingAndGlyphs">117.4s / 120s</text>
@@ -29,7 +29,7 @@
 <text x="585" y="302.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="594" y="302.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="639" y="302.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">··</text>
-<text x="657" y="302.04" fill="#ffffff" textLength="135" lengthAdjust="spacingAndGlyphs">- ReadWriteOnce</text>
+<text x="657" y="302.04" fill="#ffffff" textLength="135" lengthAdjust="spacingAndGlyphs">- ReadWriteMany</text>
 <text x="891" y="302.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="0" y="320.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="18" y="320.04" fill="#ffffff" textLength="81" lengthAdjust="spacingAndGlyphs">metadata:</text>
@@ -43,7 +43,7 @@
 <text x="585" y="338.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="594" y="338.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="639" y="338.04" fill="#7f7f7f" textLength="36" lengthAdjust="spacingAndGlyphs">····</text>
-<text x="675" y="338.04" fill="#ffffff" textLength="63" lengthAdjust="spacingAndGlyphs">limits:</text>
+<text x="675" y="338.04" fill="#ffffff" textLength="81" lengthAdjust="spacingAndGlyphs">requests:</text>
 <text x="891" y="338.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="0" y="356.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="18" y="356.04" fill="#ffffff" textLength="45" lengthAdjust="spacingAndGlyphs">spec:</text>
@@ -70,7 +70,7 @@
 <text x="585" y="410.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="594" y="410.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="639" y="410.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">··</text>
-<text x="657" y="410.04" fill="#ffffff" textLength="135" lengthAdjust="spacingAndGlyphs">- ReadWriteMany</text>
+<text x="657" y="410.04" fill="#ffffff" textLength="135" lengthAdjust="spacingAndGlyphs">- ReadWriteOnce</text>
 <text x="891" y="410.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="0" y="428.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="36" y="428.04" fill="#ffffff" textLength="90" lengthAdjust="spacingAndGlyphs">resources:</text>
@@ -120,7 +120,7 @@
 <text x="585" y="554.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="594" y="554.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="639" y="554.04" fill="#7f7f7f" textLength="36" lengthAdjust="spacingAndGlyphs">····</text>
-<text x="675" y="554.04" fill="#ffffff" textLength="81" lengthAdjust="spacingAndGlyphs">requests:</text>
+<text x="675" y="554.04" fill="#ffffff" textLength="63" lengthAdjust="spacingAndGlyphs">limits:</text>
 <text x="891" y="554.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="0" y="572.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="585" y="572.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>

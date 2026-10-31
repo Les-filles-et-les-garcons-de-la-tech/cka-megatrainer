@@ -59,7 +59,7 @@ They have no sound. The game itself plays an original chiptune.
 ## How it plays
 
 1. Each question is a scenario split into **steps**, e.g. generate YAML → fix the file → apply it.
-   The 10 starter questions cover the 5 CKA domains with their exam weights.
+   **100 questions** cover the whole CKA curriculum, in the exam's proportions (see below).
 2. **Command step**: options A–D. Type the full command of the one you choose. Typing another
    option's text means choosing it; typos count as wrong, just like in a shell. `k ` is read as `kubectl `.
 3. **Edit step**: a file opens in an editor (e.g. the output of `--dry-run=client -o yaml`) next to
@@ -69,6 +69,23 @@ They have no sound. The game itself plays an original chiptune.
 5. Every answer is explained: why your choice is wrong, the correct answer, the trap behind each
    other option. A wrong step ends the question with a recap of the full solution and an exam tip.
 6. Scoring: 100 points per correct step + up to 50 speed bonus. **Copy/paste is blocked**: you type.
+
+### Like the real exam: 15 to 20 tasks
+
+**CKA EXAM**, the first menu entry, draws a new exam every time: a random number of questions
+between **15 and 20**, like the real CKA, split across the domains by their exam weights. The menu
+shows each domain's share of a 20-question exam:
+
+| Domain | Weight | In a 20-question exam | In the library |
+|---|---|---|---|
+| Troubleshooting | 30 % | 6 | 30 questions |
+| Cluster Architecture, Installation & Configuration | 25 % | 5 | 25 questions |
+| Services & Networking | 20 % | 4 | 20 questions |
+| Workloads & Scheduling | 15 % | 3 | 15 questions |
+| Storage | 10 % | 2 | 10 questions |
+
+The domain entries are for focused practice: they play all the questions of that domain.
+**ALL QUESTIONS** plays the whole library.
 
 At the end, your exam score is the share of correct steps (partial credit, like the real exam).
 At **66 % or more**, the CKA pass mark, you get **YOU WIN** with fireworks; below, **GAME OVER**. Either way
@@ -107,7 +124,9 @@ RETRO_FONT="Press Start 2P" make start-exam   # NES arcade font instead of VT323
 make test                                # validate questions.json + unit tests
 make help                                # all targets
 
-./cka_trainer.py --domain troubleshooting    # skip the menu
+./cka_trainer.py --exam                      # a CKA exam right away (15-20 questions)
+./cka_trainer.py --exam --count 20           # an exam of exactly 20 questions
+./cka_trainer.py --domain troubleshooting    # practise one domain (all its questions)
 ./cka_trainer.py --id NET-001 --id TRB-003   # specific questions
 ./cka_trainer.py --count 5                   # 5 random questions
 ./cka_trainer.py --theme soft                # your terminal's colours instead of retro RGB
@@ -161,7 +180,7 @@ with your OS, terminal, Python version and what you saw (a screenshot helps). Ev
 Ubuntu 24.04 + GNOME Terminal" is useful.
 
 **Pull requests (merge requests) are welcome**: new questions (the database is meant to grow from
-these first 10), fixes for other platforms, gameplay ideas. See [CONTRIBUTING.md](CONTRIBUTING.md)
+these 100: keep one question per percent of exam weight), fixes for other platforms, gameplay ideas. See [CONTRIBUTING.md](CONTRIBUTING.md)
 for the question format and the checks to run.
 
 ## License

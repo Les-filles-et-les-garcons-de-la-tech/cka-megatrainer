@@ -200,16 +200,14 @@ def snippet_used(step, text):
     if not step.get("options") or not step.get("target"):
         return None
     lines = text.split("\n")
-    good = correct_option(step)
-    if find_block(lines, lines_of(good["snippet"])) >= 0:
-        return good
     target_still_there = find_block(lines, lines_of(step["target"])) >= 0
     prefill = lines_of(step["prefill"])
     found = [o for o in step["options"]
              if find_block(lines, lines_of(o["snippet"])) >= 0
              # a snippet already in the untouched file is no evidence, unless the target was replaced
              and (find_block(prefill, lines_of(o["snippet"])) < 0 or not target_still_there)]
-    return max(found, key=lambda o: len(lines_of(o["snippet"])), default=None)
+    # the longest match wins: a trap may extend the correct snippet (e.g. adds '- {}'); ties -> correct
+    return max(found, key=lambda o: (len(lines_of(o["snippet"])), bool(o.get("correct"))), default=None)
 
 
 def judge(step, text, how):
@@ -502,18 +500,30 @@ def pager(stdscr, title, lines, footer="Enter: continue   q: quit"):
 # Screens
 # --------------------------------------------------------------------------
 
-def step_body(q, step, options):
-    lines = [(q["title"], A["bold"]), (q["scenario"], A["normal"])]
+def step_body(q, step, options, width, budget):
+    """The text above the input area, fitted into budget lines. When it does not fit,
+    the scenario goes first, then the oldest context lines; prompt and options always stay."""
+    title = expand([(q["title"], A["bold"])], width)
+    scenario = expand([(q["scenario"], A["normal"])], width)
+    context = []
     if step.get("context"):
-        lines.append(("", 0))
-        lines += [("│ " + ln, A["dim"], True) for ln in as_text(step["context"]).split("\n")]
-    lines += [("", 0), (step["prompt"], A["cyan"] | A["bold"])]
+        context = expand([("│ " + ln, A["dim"], True) for ln in as_text(step["context"]).split("\n")], width)
+    tail = [("", 0)] + expand([(step["prompt"], A["cyan"] | A["bold"])], width)
     if step["type"] == "command":
         for label, o in zip(LABELS, options):
-            first, *rest = o["cmd"].split("\n")
-            lines.append((f"  {label}) {first}", A["normal"], True))
-            lines += [("     " + r, A["normal"], True) for r in rest]
-    return lines
+            tail += expand([(f"  {label}) {o['cmd']}", A["normal"], True)], width)
+    gap = [("", 0)] if context else []
+    for head in (title + scenario, title):
+        body = head + gap + context + tail
+        if len(body) <= budget:
+            return body
+    room = budget - len(title) - len(gap) - len(tail) - 1  # 1: the "…" marker
+    if context and room >= 1:
+        return title + gap + [("│ …", A["dim"])] + context[-room:] + tail
+    body = title + tail
+    if len(body) > budget:
+        body = body[:budget - 1] + [("… (enlarge the terminal to see everything)", A["dim"])]
+    return body
 
 
 def box(stdscr, y, x, h, w, label, attr):
@@ -558,10 +568,8 @@ def draw_step(stdscr, title, q, step, options, ed, remaining, limit, warn=False,
     header(stdscr, title)
     countdown(stdscr, 1, remaining, limit)
 
-    body = expand(step_body(q, step, options), w - 2)
-    max_body = h - 4 - 8  # keep room for the input area
-    if len(body) > max_body:
-        body = body[:max_body - 1] + [("… (enlarge the terminal to see everything)", A["dim"])]
+    # rows: header, bar, blank, body, blank, input area (a command needs 3 rows, an edit ~8), footer
+    body = step_body(q, step, options, w - 2, h - 5 - (3 if step["type"] == "command" else 8))
     for i, (text, attr) in enumerate(body):
         put(stdscr, 3 + i, 1, text, attr)
 
@@ -785,6 +793,8 @@ def rules_lines():
     b, n = A["bold"], A["normal"]
     return [
         ("Train like the exam: read the task, choose the right command and TYPE it in full.", n),
+        ("CKA EXAM: 15-20 random questions in the exam's domain proportions. The domain", n),
+        ("entries let you practise all the questions of one domain.", n), ("", 0),
         ("Typing another option = choosing it. Typos count as wrong, like in a real shell.", n),
         ("A leading 'k ' is accepted as 'kubectl '. Copy/paste is blocked.", n), ("", 0),
         ("Countdown", b),

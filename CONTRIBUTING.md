@@ -81,5 +81,12 @@ Rules (`./cka_trainer.py --validate` enforces most of them):
   `--validate` replaces `target` in `prefill` with each snippet and requires the correct one to
   pass and **every trap to fail**. If a trap passes, tighten the checks; never weaken the trap.
 - Keep snippets short (≤ 8 lines, 3–4 options): they share the screen with the editor.
-- Keep the mix close to the CKA weights: Troubleshooting 30 %, Cluster Architecture 25 %,
-  Services & Networking 20 %, Workloads & Scheduling 15 %, Storage 10 %.
+- Keep the library in the CKA proportions: **one question per percent of weight** per 100 questions
+  (Troubleshooting 30 %, Cluster Architecture 25 %, Services & Networking 20 %, Workloads &
+  Scheduling 15 %, Storage 10 %). The tests check the exact counts: add questions in proportional
+  batches (the smallest exact batch is 20: 6/5/4/3/2) and update `test_hundred_questions_in_cka_proportions`.
+- To add several questions, write them in a separate file `{"questions": [...]}` and check it
+  with `python3 tools/validate_fragment.py FILE.json PREFIX FIRST LAST` (stricter than
+  `--validate`), then merge it with `python3 tools/merge_questions.py questions.json questions.json FILE.json`.
+- Read your question in the game at 100x38 and at 80x24 (`make screenshot`): at 80x24 long
+  `context` output is trimmed from the top, so put the essential lines last.

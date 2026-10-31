@@ -12,8 +12,8 @@
 <text x="9" y="140.04" fill="#00ffff" font-weight="bold" textLength="369" lengthAdjust="spacingAndGlyphs">Step 1 - Create the Service imperatively.</text>
 <text x="27" y="158.04" fill="#ffffff" textLength="828" lengthAdjust="spacingAndGlyphs">A) kubectl expose deployment web --name=web-svc --port=80 --target-port=8080 --type=NodePort</text>
 <text x="27" y="176.04" fill="#ffffff" textLength="828" lengthAdjust="spacingAndGlyphs">B) kubectl expose deployment web --name=web-svc --port=8080 --target-port=80 --type=NodePort</text>
-<text x="27" y="194.04" fill="#ffffff" textLength="864" lengthAdjust="spacingAndGlyphs">C) kubectl expose deployment web --name=web-svc --port=80 --target-port=8080 --type=LoadBalancer</text>
-<text x="27" y="212.04" fill="#ffffff" textLength="684" lengthAdjust="spacingAndGlyphs">D) kubectl expose deployment web --name=web-svc --port=80 --target-port=8080</text>
+<text x="27" y="194.04" fill="#ffffff" textLength="684" lengthAdjust="spacingAndGlyphs">C) kubectl expose deployment web --name=web-svc --port=80 --target-port=8080</text>
+<text x="27" y="212.04" fill="#ffffff" textLength="864" lengthAdjust="spacingAndGlyphs">D) kubectl expose deployment web --name=web-svc --port=80 --target-port=8080 --type=LoadBalancer</text>
 <text x="0" y="248.04" fill="#00ffff" textLength="900" lengthAdjust="spacingAndGlyphs">┌ Your answer ─────────────────────────────────────────────────────────────────────────────────────┐</text>
 <text x="0" y="266.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="18" y="266.04" fill="#ffffff" textLength="540" lengthAdjust="spacingAndGlyphs">kubectl expose deployment web --name=web-svc --port=80 --tar</text>
