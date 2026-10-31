@@ -205,9 +205,10 @@ make help                                # all targets
 - **YOU WIN**: bobbing rainbow letters, a victory theme, a demo-scene scroller and fireworks in
   five styles, including *helm* bursts with 7 rays like the Kubernetes wheel and embers raining down.
 
-### On macOS (untested, feedback welcome)
+### On macOS
 
-Everything is meant to work on a Mac, but nobody has tried it yet:
+The game has been tested on a Mac by the maintainer. Reports from other macOS versions, Intel and
+Apple Silicon Macs and other terminals are welcome:
 
 - **Game and sound**: Python 3.9 comes with the command-line tools (`xcode-select --install`),
   and sounds play through `afplay`, built into macOS. The single-file `cka-megatrainer.pyz` is the
@@ -222,20 +223,21 @@ Everything is meant to work on a Mac, but nobody has tried it yet:
 
 ## Tested on
 
-So far the game has been developed and tested on **one platform**:
+The game is developed on Fedora Silverblue and has also been tested on **macOS** by the
+maintainer (details per macOS version and terminal still to be documented). Linux setup:
 
 | | |
 |---|---|
 | OS | **Fedora Silverblue 43** (immutable Fedora), GNOME on **Wayland** |
 | Python | 3.14 (host); test suite and a full game also on 3.9, 3.10, 3.11, 3.12, 3.13 and 3.15 (toolbox) |
 | Terminals | **Ptyxis** (Fedora's default, for `make start-exam-here`) and **foot 1.25** (the game window) |
-| Game window | `foot` installed in a `cka-dev` **toolbox** by `make install-retro`, leaving the host untouched |
+| Game window | `foot` installed in a `cka-dev` **toolbox** by the automatic setup of `make start-exam`, leaving the host untouched |
 | Sound | PipeWire with `pw-play` |
 | Also checked | 80x24 and 100x38 sizes, both colour themes (screenshots taken in tmux 3.7); the single-file `.pyz` run alone from an empty directory; the macOS branches of the setup scripts in a simulated Mac environment (not on a real Mac) |
 
 Not tested yet (help wanted!): other Linux distributions (Debian, Ubuntu, Arch, openSUSE…),
 X11 sessions, other terminals (GNOME Terminal, Konsole, kitty, alacritty, xterm, Windows Terminal),
-**macOS** (see above: supported in the code, never run on a real Mac) and Windows through
+more **macOS** setups (versions, chips, terminals) and Windows through
 WSL. Python's `curses` is not available on native Windows.
 
 ## Contributing
