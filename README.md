@@ -37,13 +37,62 @@ but you can only answer the way the exam makes you work: **with your keyboard, u
 ```bash
 git clone https://github.com/Les-filles-et-les-garcons-de-la-tech/cka-megatrainer.git
 cd cka-megatrainer
-make install-retro     # once: 80s fonts + a terminal for the game window (see below)
-make start-exam        # play!
+make start-exam        # install missing retro components automatically, then play!
 ```
 
-Only Python 3 and its standard library are needed (developed with Python 3.14). The terminal
-must be at least 70x20 (100x38 is the intended size). `make start-exam-here` plays in your current
-terminal, without the retro window.
+Only Python 3.9+ and its standard library are needed (tested with Python 3.9 to 3.15). The
+terminal must be at least 70x20 (100x38 is the intended size). This works on Linux and macOS;
+on macOS, install Apple's command-line tools with `xcode-select --install` if Python or `make`
+is missing.
+
+`make start-exam` checks setup automatically on every launch, reusing installed fonts and
+supported terminals. No separate installation command is needed:
+
+- **macOS**: installs **Kitty** through [Homebrew](https://brew.sh/) if neither Kitty nor
+  Alacritty is found. Without Homebrew, it prints instructions and plays in your current terminal.
+- **Linux**: installs missing `curl`, `fontconfig` and a terminal (`foot` on Wayland, otherwise
+  `xterm`) using apt, dnf, pacman, zypper or apk. System package installation may ask for your
+  sudo password. Fedora Silverblue uses the existing `cka-dev` toolbox setup instead.
+
+If installation fails, fix the reported problem and rerun `make start-exam`.
+
+For a **fast start without setup**, or to play again using your current terminal's configured font:
+
+```bash
+make start-exam-here
+```
+
+### Reset installation for testing
+
+Close the game window, then run:
+
+```bash
+make uninstall
+make start-exam        # exercise installation again
+```
+
+Setup records the fonts, licenses, terminal and system packages it installs. `make uninstall`
+removes those recorded components, the game sound cache, and local `dist/` and `__pycache__/`
+outputs. On macOS it also removes setup-installed Kitty's cache and downloaded installer.
+Pre-existing fonts and terminals are preserved. Linux package removal may ask for your sudo
+password; a toolbox created by setup is removed, while a pre-existing toolbox is kept and only
+setup-installed packages are removed from it. The repository and source changes are preserved.
+Ownership tracking applies to installations made with this version of setup.
+
+### Single-file version
+
+The whole game (code, 100 questions, sounds) also fits in **one file**, `cka-megatrainer.pyz`
+(about 140 KB), a standard Python zip application:
+
+```bash
+make dist                      # builds dist/cka-megatrainer.pyz
+./dist/cka-megatrainer.pyz     # or: python3 dist/cka-megatrainer.pyz
+```
+
+Copy that file anywhere, to any Linux or macOS machine with Python 3.9+ (macOS ships Python 3.9
+with its command-line tools), and run it: nothing else is needed. All options work the same
+(`--exam`, `--silent`, `--theme soft`...). It plays in the current terminal: the retro font window
+of `make start-exam` needs the repository and handles its own setup.
 
 ## Screenshots
 
@@ -120,6 +169,7 @@ make start-exam                          # retro window with an 80s font
 make start-exam ARGS="--domain storage"  # any option below, passed through ARGS
 make start-exam-silent                   # no music / sound effects
 make start-exam-here                     # in the current terminal
+make uninstall                           # reset setup-installed components, caches and builds
 RETRO_FONT="Press Start 2P" make start-exam   # NES arcade font instead of VT323
 make test                                # validate questions.json + unit tests
 make help                                # all targets
@@ -149,11 +199,26 @@ make help                                # all targets
 - **Font window**: a terminal app cannot change the font of the terminal it runs in, so
   `make start-exam` opens a dedicated window (`foot`, `kitty`, `alacritty` or `xterm`) with
   **VT323** (a 1980s DEC terminal font, the default) or **Press Start 2P** (NES arcade), both under
-  the SIL Open Font License. `make install-retro` downloads them to
-  `~/.local/share/fonts/cka-megatrainer/`. Without a graphical session, the fonts or a supported
-  terminal, the game simply starts in the current terminal.
+  the SIL Open Font License. Automatic setup downloads them to
+  `~/.local/share/fonts/cka-megatrainer/` (on macOS: `~/Library/Fonts`). Without a graphical
+  session, the fonts or a supported terminal, the game simply starts in the current terminal.
 - **YOU WIN**: bobbing rainbow letters, a victory theme, a demo-scene scroller and fireworks in
   five styles, including *helm* bursts with 7 rays like the Kubernetes wheel and embers raining down.
+
+### On macOS (untested, feedback welcome)
+
+Everything is meant to work on a Mac, but nobody has tried it yet:
+
+- **Game and sound**: Python 3.9 comes with the command-line tools (`xcode-select --install`),
+  and sounds play through `afplay`, built into macOS. The single-file `cka-megatrainer.pyz` is the
+  easiest way in.
+- **Retro font window**: `make start-exam` puts missing VT323 and Press Start 2P fonts in `~/Library/Fonts`.
+  When Homebrew is available, it also installs Kitty if neither Kitty nor Alacritty is found.
+  Terminal and iTerm2 cannot be given a font for one window, so `make start-exam` opens the game in
+  **kitty** or **alacritty** if one is installed (`brew install --cask kitty`), from Homebrew or
+  `/Applications`. Without them it plays in your current terminal.
+- **Or simply**: pick *VT323* in your Terminal or iTerm2 profile and run `make start-exam-here`
+  (or the `.pyz`).
 
 ## Tested on
 
@@ -162,15 +227,15 @@ So far the game has been developed and tested on **one platform**:
 | | |
 |---|---|
 | OS | **Fedora Silverblue 43** (immutable Fedora), GNOME on **Wayland** |
-| Python | 3.14 (host) and 3.14 (toolbox) |
+| Python | 3.14 (host); test suite and a full game also on 3.9, 3.10, 3.11, 3.12, 3.13 and 3.15 (toolbox) |
 | Terminals | **Ptyxis** (Fedora's default, for `make start-exam-here`) and **foot 1.25** (the game window) |
 | Game window | `foot` installed in a `cka-dev` **toolbox** by `make install-retro`, leaving the host untouched |
 | Sound | PipeWire with `pw-play` |
-| Also checked | 80x24 and 100x38 sizes, both colour themes (screenshots taken in tmux 3.7) |
+| Also checked | 80x24 and 100x38 sizes, both colour themes (screenshots taken in tmux 3.7); the single-file `.pyz` run alone from an empty directory; the macOS branches of the setup scripts in a simulated Mac environment (not on a real Mac) |
 
 Not tested yet (help wanted!): other Linux distributions (Debian, Ubuntu, Arch, openSUSE…),
 X11 sessions, other terminals (GNOME Terminal, Konsole, kitty, alacritty, xterm, Windows Terminal),
-macOS (`afplay` and `kitty`/`alacritty` are supported in the code but untested) and Windows through
+**macOS** (see above: supported in the code, never run on a real Mac) and Windows through
 WSL. Python's `curses` is not available on native Windows.
 
 ## Contributing
@@ -189,7 +254,7 @@ CKA Megatrainer is free software, licensed under the **GNU General Public Licens
 see [LICENSE](LICENSE). You may use, study, share and modify it. If you distribute a modified
 version, it must stay under the same license, with its source code available.
 
-The fonts are not part of this repository: `make install-retro` downloads them from Google Fonts
+The fonts are not part of this repository: automatic setup downloads them from Google Fonts
 under their own SIL Open Font License.
 
 ---

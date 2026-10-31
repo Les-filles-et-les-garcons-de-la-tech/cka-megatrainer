@@ -21,6 +21,37 @@ GAME="python3 cka_trainer.py"
 inline() { exec $GAME "$@"; }
 
 [ "${CKA_INLINE:-0}" = 1 ] && inline "$@"
+
+# macOS: kitty or alacritty (installed with Homebrew or dragged into /Applications)
+if [ "$(uname -s)" = Darwin ]; then
+  case "$FONT" in
+    "Press Start 2P") FILE=PressStart2P-Regular.ttf ;;
+    *)                FILE=VT323-Regular.ttf ;;
+  esac
+  if [ ! -f "$HOME/Library/Fonts/$FILE" ] && [ ! -f "/Library/Fonts/$FILE" ]; then
+    echo "Font '$FONT' is not installed - run 'make install-retro'. Starting in this terminal." >&2
+    sleep 2
+    inline "$@"
+  fi
+  mac_app() {  # mac_app BINARY APP_NAME -> path of the binary, if installed
+    command -v "$1" 2>/dev/null && return
+    [ -x "/Applications/$2.app/Contents/MacOS/$1" ] && echo "/Applications/$2.app/Contents/MacOS/$1"
+  }
+  if [ "${RETRO_TERM:-kitty}" = kitty ] && KITTY=$(mac_app kitty kitty); then
+    exec "$KITTY" --directory "$PWD" --title "$TITLE" -o "font_family=$FONT" -o "font_size=$SIZE" \
+      -o initial_window_width=${COLS}c -o initial_window_height=${ROWS}c $GAME "$@"
+  fi
+  if [ "${RETRO_TERM:-alacritty}" = alacritty ] && ALACRITTY=$(mac_app alacritty Alacritty); then
+    exec "$ALACRITTY" --working-directory "$PWD" --title "$TITLE" -o "font.normal.family=\"$FONT\"" \
+      -o "font.size=$SIZE" -o "window.dimensions.columns=$COLS" \
+      -o "window.dimensions.lines=$ROWS" -e $GAME "$@"
+  fi
+  echo "The retro window needs kitty or alacritty on macOS (brew install --cask kitty)." >&2
+  echo "Starting in this terminal." >&2
+  sleep 2
+  inline "$@"
+fi
+
 [ -z "$WAYLAND_DISPLAY$DISPLAY" ] && inline "$@"
 
 if ! fc-list : family | grep -qx "$FONT"; then

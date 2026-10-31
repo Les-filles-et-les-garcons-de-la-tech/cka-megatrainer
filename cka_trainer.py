@@ -46,8 +46,16 @@ def as_text(value):
     return "\n".join(value) if isinstance(value, list) else (value or "")
 
 
+def read_db_text(path):
+    """The built-in database lives inside the archive when the game runs as a .pyz:
+    zipimport's loader then serves it by its member name."""
+    if Path(path) == DEFAULT_DB and hasattr(__loader__, "archive"):
+        return __loader__.get_data(DEFAULT_DB.name).decode("utf-8")
+    return Path(path).read_text(encoding="utf-8")
+
+
 def load_db(path):
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    data = json.loads(read_db_text(path))
     domains = {d["id"]: d for d in data["domains"]}
     seen = set()
     for q in data["questions"]:
@@ -873,7 +881,8 @@ def summary_lines(results, domains):
     missed = [r["id"] for r in results if not r["solved"]]
     if missed:
         lines += [("", 0), ("Review these questions:", A["bold"]), ("  " + "  ".join(missed), A["yellow"]),
-                  ("  Replay them with: ./cka_trainer.py " + " ".join(f"--id {m}" for m in missed), A["dim"])]
+                  (f"  Replay them with: python3 {sys.argv[0]} " + " ".join(f"--id {m}" for m in missed),
+                   A["dim"])]
     return lines
 
 
