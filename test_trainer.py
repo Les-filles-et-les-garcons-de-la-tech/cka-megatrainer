@@ -22,6 +22,22 @@ class Database(unittest.TestCase):
             for s in q["steps"].values():
                 self.assertTrue(s.get("explain"), q["id"])
 
+    def test_every_question_links_the_documentation(self):
+        for q in QUESTIONS:
+            self.assertTrue(q.get("docs"), q["id"])
+            for d in q["docs"]:
+                # one URL per line in the 100-column game window, so the terminal can click it
+                self.assertLessEqual(len(d["url"]) + 2, 97, d["url"])
+
+    def test_bad_docs_rejected(self):
+        q = copy.deepcopy(BY_ID["NET-001"])
+        q["docs"] = [{"title": "no url"}]
+        with self.assertRaises(ValueError):
+            t.validate_question(q, DOMAINS, set())
+        q["docs"] = [{"title": "plain http", "url": "http://kubernetes.io/docs/"}]
+        with self.assertRaises(ValueError):
+            t.validate_question(q, DOMAINS, set())
+
     def test_duplicate_id_rejected(self):
         seen = {"CLU-001"}
         with self.assertRaises(ValueError):
@@ -216,6 +232,51 @@ class ScreenFit(unittest.TestCase):
                 lines = self.body(q, s, 38, 100)
                 self.assertNotIn("│ …", lines, q["id"])
                 self.assertIn(t.expand([(q["scenario"], 0)], 98)[0][0], lines, q["id"])
+
+
+class LearnMode(unittest.TestCase):
+    def setUp(self):
+        t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "bold", "dim", "rev", "normal")})
+        t.A["green"] = 1
+        self.addCleanup(t.SETTINGS.update, learn=False)
+
+    def command_body(self, learn):
+        t.SETTINGS["learn"] = learn
+        q = BY_ID["CLU-001"]
+        step = q["steps"][q["start"]]
+        return step, t.step_body(q, step, step["options"], 98, 30)
+
+    def test_command_answer_marked_only_in_learn_mode(self):
+        step, body = self.command_body(learn=True)
+        marked = [x[0] for x in body if x[0].startswith("✔")]
+        good = t.correct_option(step)["cmd"]
+        self.assertEqual(len(marked), 1)
+        self.assertTrue(marked[0].endswith(good))
+        self.assertTrue(all(x[1] for x in body if x[0].startswith("✔")))  # drawn in green
+        _, body = self.command_body(learn=False)
+        self.assertFalse(any("✔" in x[0] for x in body))
+
+    def test_edit_snippet_rows_flag_the_answer(self):
+        step = next(s for q in QUESTIONS for s in q["steps"].values() if s["type"] == "edit")
+        rows = [r for r in t.snippet_rows(step["options"]) if r]
+        good = {r[3] for r in rows if r[0]}  # a label starts each option
+        self.assertEqual(good, {True, False})
+        flagged = [r for r in rows if r[3]]
+        self.assertEqual([r[2] for r in flagged],
+                         [ln.lstrip(" ") for ln in t.lines_of(t.correct_option(step)["snippet"])])
+
+    def test_docs_on_answer_page_only_in_learn_mode(self):
+        q = BY_ID["CLU-001"]
+        step = q["steps"][q["start"]]
+        res = t.judge(step, t.correct_option(step)["cmd"], "submit")
+        args = (step, step["options"], "", res, 5.0, 100)
+        t.SETTINGS["learn"] = False
+        self.assertFalse(any("https://" in x[0] for x in t.feedback_lines(*args, docs=q["docs"])))
+        t.SETTINGS["learn"] = True
+        urls = [x[0].strip() for x in t.feedback_lines(*args, docs=q["docs"]) if "https://" in x[0]]
+        self.assertEqual(urls, [d["url"] for d in q["docs"]])
+        recap = [x[0].strip() for x in t.recap_lines(q, 100, True) if "https://" in x[0]]
+        self.assertEqual(recap, urls)
 
 
 class EditorKeys(unittest.TestCase):

@@ -101,6 +101,20 @@ cluster-8hjzw           2/2     Running           0         3m12s
 troubleshooting-x4k2p   1/3     CrashLoopBackOff  2         6m40s
 ```
 
+### Learn mode
+
+**`make start-learn`** (or `make start-learn-here` for the current terminal) is the same game with the answers shown, to study before you play for real:
+
+- the right option carries a **green ✔** while you answer (a command or a snippet), so you see what
+  to type, and you still have to type it, against the clock;
+- every answer page, and the recap, ends with **links to the official documentation** of the
+  question (kubernetes.io, helm.sh for Helm questions), so you can read the details. Each address
+  is on its own line: click it (Cmd+click on macOS, Ctrl+click on most Linux terminals,
+  Ctrl+Shift+click in kitty) or copy it by hand.
+
+Everything else is unchanged: same questions, countdown, scoring and exam draw. `--learn` also
+works with the other options (`--domain storage --learn`) and with the single-file version.
+
 ## Controls
 
 | Key | Command step | Edit step |
@@ -121,11 +135,14 @@ On the title screen: ↑/↓ and Enter, **M** toggles the music, **Q** quits.
 ```bash
 make start-exam                          # retro window with an 80s font
 make start-exam ARGS="--domain storage"  # any option below, passed through ARGS
+make start-learn                         # learn mode: right answers marked, links to the docs
+make start-learn-here                    # learn mode in the current terminal
 make start-exam-silent                   # no music / sound effects
 make start-exam-here                     # in the current terminal
 make uninstall                           # reset setup-installed components, caches and builds
 RETRO_FONT="Press Start 2P" make start-exam   # NES arcade font instead of VT323
 make test                                # validate questions.json + unit tests
+make check-links                         # check the documentation links (needs network)
 make help                                # all targets
 
 ./cka_trainer.py --exam                      # a CKA exam right away (15-20 questions)
@@ -134,6 +151,7 @@ make help                                # all targets
 ./cka_trainer.py --id NET-001 --id TRB-003   # specific questions
 ./cka_trainer.py --count 5                   # 5 random questions
 ./cka_trainer.py --theme soft                # your terminal's colours instead of retro RGB
+./cka_trainer.py --learn                     # learn mode (see above)
 ./cka_trainer.py --silent                    # no sound
 ./cka_trainer.py --allow-paste               # practise without the paste blocker
 ./cka_trainer.py --list                      # list question ids
@@ -185,7 +203,7 @@ make dist                      # builds dist/cka-megatrainer.pyz
 
 Copy that file anywhere, to any Linux or macOS machine with Python 3.9+ (macOS ships Python 3.9
 with its command-line tools), and run it: nothing else is needed. All options work the same
-(`--exam`, `--silent`, `--theme soft`...). It plays in the current terminal: the retro font window
+(`--exam`, `--learn`, `--silent`, `--theme soft`...). It plays in the current terminal: the retro font window
 of `make start-exam` needs the repository and handles its own setup.
 
 ## The 80s experience

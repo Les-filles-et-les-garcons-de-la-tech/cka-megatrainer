@@ -39,7 +39,7 @@ PASTE_QUARANTINE = 0.3  # seconds during which the tail of a paste is still drop
 PASTE_START, PASTE_END = -200, -201  # bracketed-paste markers (ints: the editor ignores them)
 
 A = {}  # curses attributes, filled by init_colors()
-SETTINGS = {"allow_paste": False, "silent": False}
+SETTINGS = {"allow_paste": False, "silent": False, "learn": False}
 
 
 # --------------------------------------------------------------------------
@@ -83,6 +83,9 @@ def validate_question(q, domains, seen):
             fail(f"missing '{key}'")
     if q["domain"] not in domains:
         fail(f"unknown domain '{q['domain']}'")
+    for d in q.get("docs", []):
+        if not d.get("title") or not str(d.get("url", "")).startswith("https://"):
+            fail(f"docs entries need a 'title' and an https 'url': {d}")
     steps = q["steps"]
     if q["start"] not in steps:
         fail(f"start step '{q['start']}' does not exist")
@@ -523,7 +526,10 @@ def step_body(q, step, options, width, budget):
     tail = [("", 0)] + expand([(step["prompt"], A["cyan"] | A["bold"])], width)
     if step["type"] == "command":
         for label, o in zip(LABELS, options):
-            tail += expand([(f"  {label}) {o['cmd']}", A["normal"], True)], width)
+            if SETTINGS["learn"] and o.get("correct"):  # learn mode: the answer is shown
+                tail += expand([(f"✔ {label}) {o['cmd']}", A["green"] | A["bold"], True)], width)
+            else:
+                tail += expand([(f"  {label}) {o['cmd']}", A["normal"], True)], width)
     gap = [("", 0)] if context else []
     for head in (title + scenario, title):
         body = head + gap + context + tail
@@ -547,11 +553,12 @@ def box(stdscr, y, x, h, w, label, attr):
 
 
 def snippet_rows(options):
-    """[(label, indent, text)] for the options panel; label is '' on continuation lines."""
+    """[(label, indent, text, correct)] for the options panel; label is '' on continuation lines."""
     rows = []
     for label, o in zip(LABELS, options):
         for i, ln in enumerate(lines_of(o["snippet"])):
-            rows.append((f"{label})" if i == 0 else "", len(ln) - len(ln.lstrip(" ")), ln.lstrip(" ")))
+            rows.append((f"{label})" if i == 0 else "", len(ln) - len(ln.lstrip(" ")), ln.lstrip(" "),
+                         bool(o.get("correct"))))
         rows.append(None)  # gap between options
     return rows[:-1]
 
@@ -564,9 +571,13 @@ def draw_options(stdscr, y, x, h, w, options, view):
     box(stdscr, y, x, h, w, " Options: type one ", A["yellow"])
     for i, row in enumerate(rows[view["panel"]:view["panel"] + inner]):
         if row:
-            label, indent, text = row
+            label, indent, text, good = row
+            show = SETTINGS["learn"] and good  # learn mode: the right snippet is marked
             put(stdscr, y + 1 + i, x + 2, f"{label:<3}", A["yellow"] | A["bold"])
-            put(stdscr, y + 1 + i, x + 5, ("·" * indent + text)[:w - 7], A["normal"])
+            if show and label:
+                put(stdscr, y + 1 + i, x + 1, "✔", A["green"] | A["bold"])
+            put(stdscr, y + 1 + i, x + 5, ("·" * indent + text)[:w - 7],
+                A["green"] | A["bold"] if show else A["normal"])
             put(stdscr, y + 1 + i, x + 5, "·" * min(indent, w - 7), A["dim"])
     if view["panel"] > 0:
         put(stdscr, y, x + w - 10, " ▲ PgUp ", A["yellow"] | A["bold"])
@@ -676,7 +687,18 @@ def run_step(stdscr, title, q, step, options):
                 return ed.text(), time.monotonic() - start, action, pastes
 
 
-def feedback_lines(step, options, text, res, elapsed, pts, pastes=0):
+def docs_lines(docs):
+    """Learn mode: the Kubernetes documentation of the question, one bare URL per line so the
+    terminal can open it with a click (Cmd/Ctrl+click)."""
+    if not (SETTINGS["learn"] and docs):
+        return []
+    lines = [("", 0), ("Read more in the documentation:", A["cyan"] | A["bold"])]
+    for d in docs:
+        lines += [("  " + d["title"], A["normal"]), ("  " + d["url"], A["cyan"], True)]
+    return lines
+
+
+def feedback_lines(step, options, text, res, elapsed, pts, pastes=0, docs=None):
     limit = min(step.get("time_limit", MAX_TIME), MAX_TIME)
     if res["ok"]:
         verdict = ("✔ CORRECT", A["green"] | A["bold"])
@@ -743,7 +765,7 @@ def feedback_lines(step, options, text, res, elapsed, pts, pastes=0):
         if others:
             lines += [("", 0), ("The other traps:", A["dim"] | A["bold"])]
             lines += [(f"  {lab}) {o['why']}", A["dim"]) for lab, o in others]
-    return lines
+    return lines + docs_lines(docs)
 
 
 def recap_lines(q, earned, solved):
@@ -759,7 +781,7 @@ def recap_lines(q, earned, solved):
                           + step.get("recap", step["prompt"]), A["green"]))
     if q.get("tip"):
         lines += [("", 0), ("Exam tip:", A["cyan"] | A["bold"]), ("  " + q["tip"], A["normal"])]
-    return lines
+    return lines + docs_lines(q.get("docs"))
 
 
 def ask_question(stdscr, q, n, total, score, domains, sound):
@@ -778,7 +800,7 @@ def ask_question(stdscr, q, n, total, score, domains, sound):
         stepno += 1
         options = list(step.get("options", []))
         random.shuffle(options)
-        title = (f" CKA MEGATRAINER  Q{n}/{total}  {q['id']}  {domains[q['domain']]['name']}"
+        title = (f" {'CKA LEARN' if SETTINGS['learn'] else 'CKA MEGATRAINER'}  Q{n}/{total}  {q['id']}  {domains[q['domain']]['name']}"
                  f"  ·  step {stepno}/{plen}  ·  score {score + earned}")
         text, elapsed, how, pastes = run_step(stdscr, title, q, step, options)
         res = judge(step, text, how)
@@ -788,7 +810,8 @@ def ask_question(stdscr, q, n, total, score, domains, sound):
         earned += pts
         log.append({"step": sid, "ok": res["ok"], "time": elapsed, "how": how, "pastes": pastes})
         quit_ = pager(stdscr, f" {q['id']}  step {stepno}/{plen}  ·  {q['topic']}",
-                      feedback_lines(step, options, text, res, elapsed, pts, pastes)) == "quit"
+                      feedback_lines(step, options, text, res, elapsed, pts, pastes,
+                                     q.get("docs"))) == "quit"
         solved = res["ok"] and not res["next"]
         if quit_:
             return {"id": q["id"], "domain": q["domain"], "points": earned,
@@ -969,6 +992,9 @@ def main(argv=None):
     ap.add_argument("--no-shuffle", dest="shuffle", action="store_false", help="keep database order")
     ap.add_argument("--allow-paste", action="store_true", help="do not block pasted input")
     ap.add_argument("--silent", action="store_true", help="no music or sound effects")
+    ap.add_argument("--learn", action="store_true",
+                    help="learn mode: the right answer is marked with a green check, and each answer "
+                         "page links to the Kubernetes documentation")
     ap.add_argument("--theme", choices=retro.THEMES, default="retro",
                     help="retro: vivid RGB on black (default); soft: the terminal's own colours")
     ap.add_argument("--validate", action="store_true", help="check the database and exit")
@@ -976,6 +1002,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     SETTINGS["allow_paste"] = args.allow_paste
     SETTINGS["silent"] = args.silent
+    SETTINGS["learn"] = args.learn
     retro.set_theme(args.theme)
 
     try:

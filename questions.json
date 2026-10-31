@@ -15,6 +15,9 @@
       "title": "Give Jane read access to Pods",
       "scenario": "In namespace 'dev', user 'jane' must be able to get and list Pods - nothing more, and only in that namespace.",
       "tip": "Role/RoleBinding are namespaced; ClusterRole/ClusterRoleBinding are cluster-wide. Always finish with 'kubectl auth can-i'.",
+      "docs": [
+        {"title": "Using RBAC Authorization", "url": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -63,6 +66,9 @@
       "title": "Upgrade a worker node",
       "scenario": "The control plane already runs v1.37.1. Upgrade worker 'node01' to v1.37.1 (Pods are running on it). The kubeadm package on node01 is already upgraded.",
       "tip": "Worker upgrade order: drain -> kubeadm upgrade node -> upgrade kubelet/kubectl packages + restart kubelet -> uncordon.",
+      "docs": [
+        {"title": "Upgrading kubeadm clusters", "url": "https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-upgrade/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -109,6 +115,9 @@
       "title": "Let the auditors read Nodes",
       "scenario": "Members of the group 'auditors' (for example user 'kim') must be able to get, list and watch Nodes. Nodes are cluster-scoped, so a namespaced Role will not do.",
       "tip": "Cluster-scoped resources (nodes, PVs, namespaces, storageclasses) can only be granted by a ClusterRole bound with a ClusterRoleBinding.",
+      "docs": [
+        {"title": "Using RBAC Authorization", "url": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -160,6 +169,10 @@
       "title": "A ServiceAccount for the CI pipeline",
       "scenario": "The CI pipeline runs as ServiceAccount 'deployer' in namespace 'ci'. It must be able to manage workloads in 'ci' only: reuse the built-in ClusterRole 'edit'.",
       "tip": "A ServiceAccount's username is system:serviceaccount:<namespace>:<name> - that is the string you pass to --as.",
+      "docs": [
+        {"title": "Service Accounts", "url": "https://kubernetes.io/docs/concepts/security/service-accounts/"},
+        {"title": "Using RBAC Authorization", "url": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -213,6 +226,10 @@
       "title": "Join a new worker node",
       "scenario": "A fresh worker 'node02' has containerd, kubelet and kubeadm installed. The bootstrap token printed by 'kubeadm init' expired weeks ago. Join node02 to the cluster whose API server is 172.30.1.2:6443.",
       "tip": "Bootstrap tokens expire after 24h by default. 'kubeadm token create --print-join-command' gives you a fresh, complete join command.",
+      "docs": [
+        {"title": "kubeadm join", "url": "https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-join/"},
+        {"title": "Creating a cluster with kubeadm", "url": "https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -280,6 +297,10 @@
       "title": "Bootstrap a control plane from a config file",
       "scenario": "On 'controlplane' (192.168.10.10), bootstrap a new cluster with kubeadm-config.yaml (kubeadm.k8s.io/v1beta4). The CNI you will install requires the Pod network 10.244.0.0/16.",
       "tip": "With a config file, every setting goes IN the file: kubeadm refuses to mix --config with most flags such as --pod-network-cidr.",
+      "docs": [
+        {"title": "kubeadm init", "url": "https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/"},
+        {"title": "Customizing components with the kubeadm API", "url": "https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/control-plane-flags/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -395,6 +416,9 @@
       "title": "Upgrade the control plane",
       "scenario": "The cluster runs v1.36.5. On 'controlplane', the kubeadm package has already been upgraded to 1.37.1. Upgrade the control plane to v1.37.1.",
       "tip": "Control-plane order: upgrade kubeadm -> 'kubeadm upgrade plan' -> 'kubeadm upgrade apply vX.Y.Z' -> drain -> kubelet/kubectl packages + restart kubelet -> uncordon. One minor version at a time.",
+      "docs": [
+        {"title": "Upgrading kubeadm clusters", "url": "https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-upgrade/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -466,6 +490,9 @@
       "title": "Back up etcd",
       "scenario": "Take a snapshot of the cluster's etcd (kubeadm stacked etcd, v3.6) to /opt/etcd-backup.db. You are root on 'controlplane', working in /etc/kubernetes/pki/etcd.",
       "tip": "The certificate paths are in /etc/kubernetes/manifests/etcd.yaml: --trusted-ca-file -> --cacert, --cert-file -> --cert, --key-file -> --key.",
+      "docs": [
+        {"title": "Operating etcd clusters for Kubernetes", "url": "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -534,6 +561,9 @@
       "title": "Restore etcd from a snapshot",
       "scenario": "Someone deleted critical objects. Restore the cluster state from /opt/etcd-backup.db on 'controlplane' (kubeadm stacked etcd). You are root.",
       "tip": "Restore into a NEW directory, then point the etcd static Pod's hostPath volume to it: the kubelet re-creates etcd by itself.",
+      "docs": [
+        {"title": "Operating etcd clusters for Kubernetes", "url": "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -658,6 +688,9 @@
       "title": "Switch clusters and namespaces",
       "scenario": "Your kubeconfig holds several clusters. The task must be done on cluster 'prod', in namespace 'payments', and every following command should default to that namespace.",
       "tip": "Exam tasks start with a 'kubectl config use-context ...' line: always run it, or you work on the wrong cluster.",
+      "docs": [
+        {"title": "Configure Access to Multiple Clusters", "url": "https://kubernetes.io/docs/tasks/access-application-cluster/configure-access-multiple-clusters/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -719,6 +752,9 @@
       "title": "Certificates about to expire",
       "scenario": "The API server certificates of 'controlplane' expire in a few days. Check them, renew them and make the control plane use the new ones. You are root on controlplane.",
       "tip": "kubeadm certs renew writes new files only: the running components keep the old certificates in memory until their static Pods restart.",
+      "docs": [
+        {"title": "Certificate Management with kubeadm", "url": "https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-certs/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -780,6 +816,10 @@
       "title": "Prepare a node for kubeadm",
       "scenario": "'kubeadm init' preflight fails on a new node. You are root on it. The kubelet keeps its default failSwapOn: true.",
       "tip": "Classic node prerequisites: swap off (unless the kubelet is configured for swap), overlay + br_netfilter modules, net.ipv4.ip_forward = 1, a container runtime with the systemd cgroup driver.",
+      "docs": [
+        {"title": "Installing kubeadm", "url": "https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/"},
+        {"title": "Container Runtimes", "url": "https://kubernetes.io/docs/setup/production-environment/container-runtimes/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -866,6 +906,9 @@
       "title": "containerd with the systemd cgroup driver",
       "scenario": "On node 'node03' (containerd 2.x, config version 3), the kubelet uses cgroupDriver: systemd (the kubeadm default) but containerd still uses cgroupfs, so Pods keep restarting. You are root on node03.",
       "tip": "The kubelet and the container runtime MUST use the same cgroup driver. On systemd hosts (cgroup v2), use systemd for both.",
+      "docs": [
+        {"title": "Container Runtimes", "url": "https://kubernetes.io/docs/setup/production-environment/container-runtimes/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -973,6 +1016,9 @@
       "title": "Enable an admission plugin",
       "scenario": "Security requires that every Pod always pulls its images (no reuse of cached private images). Enable the AlwaysPullImages admission plugin on the API server of 'controlplane'. You are root.",
       "tip": "Edit /etc/kubernetes/manifests/kube-apiserver.yaml directly (backup OUTSIDE that directory). The kubelet restarts the API server; 'kubectl edit' on the mirror Pod changes nothing.",
+      "docs": [
+        {"title": "Admission Controllers Reference", "url": "https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -1082,6 +1128,9 @@
       "title": "Find a chart in a new Helm repository",
       "scenario": "The team wants to deploy kube-state-metrics with Helm. Register the repository 'prometheus-community' (https://prometheus-community.github.io/helm-charts), refresh the local index and list every available version of the chart.",
       "tip": "Helm repo workflow: 'helm repo add NAME URL' -> 'helm repo update' -> 'helm search repo REPO/CHART --versions'. 'search hub' is Artifact Hub, not your repos.",
+      "docs": [
+        {"title": "helm repo / helm search", "url": "https://helm.sh/docs/helm/helm_search_repo/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -1146,6 +1195,9 @@
       "title": "Install a chart into a new namespace",
       "scenario": "The repo 'podinfo' is already added and updated. Install the chart 'podinfo/podinfo' as release 'web' in namespace 'frontend' (it does not exist yet) with 2 replicas (chart value 'replicaCount').",
       "tip": "Helm releases are namespaced: always pass the same '-n NS' to install, list, status, upgrade, rollback and uninstall.",
+      "docs": [
+        {"title": "helm install", "url": "https://helm.sh/docs/helm/helm_install/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -1197,6 +1249,10 @@
       "title": "Upgrade a release, then roll it back",
       "scenario": "Release 'api' (chart podinfo/podinfo) runs in namespace 'prod'. Revision 1 is the original install; revision 2 was an upgrade that FAILED. Apply the new settings from prod-values.yaml; if the Pods break, go back to the last good revision.",
       "tip": "'helm rollback RELEASE REVISION -n NS'. Without a revision Helm goes to the previous one - which may itself be broken: read 'helm history' first.",
+      "docs": [
+        {"title": "helm upgrade", "url": "https://helm.sh/docs/helm/helm_upgrade/"},
+        {"title": "helm rollback", "url": "https://helm.sh/docs/helm/helm_rollback/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -1275,6 +1331,10 @@
       "title": "Customise chart values before installing",
       "scenario": "Install chart 'podinfo/podinfo' as release 'shop' in the existing namespace 'shop', exposed as a NodePort Service on port 30080. Work with a values file instead of a long list of --set flags.",
       "tip": "'helm show values CHART > values.yaml', edit, 'helm install -f values.yaml'. 'helm template' renders locally - handy to check the result, but it installs nothing.",
+      "docs": [
+        {"title": "Values Files", "url": "https://helm.sh/docs/chart_template_guide/values_files/"},
+        {"title": "helm install", "url": "https://helm.sh/docs/helm/helm_install/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -1377,6 +1437,9 @@
       "title": "Render and apply a Kustomize overlay",
       "scenario": "The 'shop' application is managed with Kustomize: a base in /opt/shop/base and an overlay in /opt/shop/overlays/prod (it contains kustomization.yaml and a replica patch). Preview what the overlay produces, apply it, and later remove it.",
       "tip": "kubectl has Kustomize built in: 'kubectl kustomize DIR' renders, 'kubectl apply -k DIR' applies, 'kubectl delete -k DIR' removes. -k takes a DIRECTORY.",
+      "docs": [
+        {"title": "Declarative Management using Kustomize", "url": "https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -1438,6 +1501,9 @@
       "title": "Write a staging overlay",
       "scenario": "Overlay /opt/shop/overlays/staging must put every object in namespace 'staging', add the local file service.yaml to the base resources, and run the 'nginx' image with tag 1.27. Then apply it and check the image.",
       "tip": "Common kustomization.yaml fields: resources (files/dirs), namespace, namePrefix, labels, images (name + newName/newTag), patches, configMapGenerator.",
+      "docs": [
+        {"title": "Declarative Management using Kustomize", "url": "https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -1549,6 +1615,9 @@
       "title": "Create a custom resource from its CRD",
       "scenario": "A CRD for databases was installed by the platform team. Create a 'Database' named 'orders' in namespace 'shop' (engine postgres) with a nightly backup at 02:00 that keeps 7 backups.",
       "tip": "CRD name = <plural>.<group>. 'kubectl explain <plural>.spec.<field>' documents custom resources too (types, -required- fields).",
+      "docs": [
+        {"title": "Custom Resources", "url": "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -1674,6 +1743,10 @@
       "title": "Install an operator and create its resource",
       "scenario": "The Redis operator ships as /opt/operator/crds.yaml (CRD RedisCluster, group cache.acme.io) and /opt/operator/operator.yaml (Deployment 'redis-operator' in namespace 'redis-system'). Install it and ask it for a 3-node Redis 7.2 cluster 'sessions' in namespace 'web'.",
       "tip": "Operator = CRDs (new API types) + a controller Deployment that watches them. Install CRDs first, check the controller logs, then create custom resources.",
+      "docs": [
+        {"title": "Operator pattern", "url": "https://kubernetes.io/docs/concepts/extend-kubernetes/operator/"},
+        {"title": "Custom Resources", "url": "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -1804,6 +1877,10 @@
       "title": "Nodes NotReady after kubeadm init",
       "scenario": "A fresh kubeadm cluster: all nodes are NotReady. kubeadm-config shows podSubnet 10.50.0.0/16 and serviceSubnet 10.96.0.0/12. Install Calico with its operator: tigera-operator.yaml and custom-resources.yaml are in the current directory.",
       "tip": "NotReady + 'cni plugin not initialized' = no config in /etc/cni/net.d. The CNI IP pool must match (or sit inside) the kubeadm --pod-network-cidr.",
+      "docs": [
+        {"title": "Installing Addons (networking)", "url": "https://kubernetes.io/docs/concepts/cluster-administration/addons/"},
+        {"title": "Creating a cluster with kubeadm", "url": "https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -1932,6 +2009,9 @@
       "title": "Debug a container with crictl",
       "scenario": "On node01 (containerd runtime), the 'billing' container of Pod billing-7c9d8-x2kqp (namespace finance) keeps exiting. Investigate directly on the node with crictl.",
       "tip": "crictl talks to the CRI runtime: 'ps -a' (containers, incl. exited), 'pods' (sandboxes), 'logs ID', 'inspect ID', 'images'. It takes IDs, not Pod names.",
+      "docs": [
+        {"title": "Debugging Kubernetes nodes with crictl", "url": "https://kubernetes.io/docs/tasks/debug/debug-cluster/crictl/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -2022,6 +2102,9 @@
       "title": "Find the plugins behind CSI and CRI",
       "scenario": "You inherit a cluster and must identify its plugins: which CSI drivers are registered, which CRI socket the kubelet uses on node01, and then create a StorageClass 'nfs-fast' backed by the NFS CSI driver.",
       "tip": "CSI driver name = StorageClass 'provisioner' (kubectl get csidrivers). CRI = kubelet's containerRuntimeEndpoint socket. CNI config = /etc/cni/net.d, binaries = /opt/cni/bin.",
+      "docs": [
+        {"title": "Compute, Storage, and Networking Extensions", "url": "https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -2116,6 +2199,10 @@
       "title": "Deployment with resource limits",
       "scenario": "Create a Deployment 'web' (image nginx:1.26, 3 replicas) whose container is limited to cpu 500m and memory 128Mi.",
       "tip": "For anything the imperative command cannot express: generate with '--dry-run=client -o yaml', edit, then apply.",
+      "docs": [
+        {"title": "Deployments", "url": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"},
+        {"title": "Resource Management for Pods and Containers", "url": "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -2216,6 +2303,9 @@
       "title": "Reserve a node for GPU workloads",
       "scenario": "Node 'node01' is reserved for GPU workloads. Only Pods that tolerate dedicated=gpu may be scheduled there.",
       "tip": "Taint = repel. Toleration = permission to ignore a taint (it does NOT attract the Pod; use nodeSelector/affinity for that).",
+      "docs": [
+        {"title": "Taints and Tolerations", "url": "https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -2315,6 +2405,9 @@
       "title": "Roll out a new image, then roll back",
       "scenario": "In namespace 'shop', Deployment 'api' runs nginx:1.26. Update it to nginx:1.27, follow the rollout, then bring it back to the last validated release.",
       "tip": "'kubectl rollout undo' alone goes back ONE revision. To reach a specific one, read 'rollout history' and use --to-revision.",
+      "docs": [
+        {"title": "Deployments", "url": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -2424,6 +2517,9 @@
       "title": "Zero-downtime rolling update strategy",
       "scenario": "Deployment 'checkout' (namespace 'shop', 4 replicas) must never have fewer than 4 available Pods during an update, and never more than 5 Pods in total.",
       "tip": "maxSurge = extra Pods allowed above 'replicas'; maxUnavailable = Pods allowed below it. They cannot both be 0.",
+      "docs": [
+        {"title": "Deployments", "url": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -2553,6 +2649,10 @@
       "title": "Configure a Pod from a ConfigMap",
       "scenario": "In namespace 'dev', create ConfigMap 'app-config' with APP_MODE=production and APP_PORT=8080, then expose every key as an environment variable of Pod 'web'.",
       "tip": "envFrom imports ALL keys of a ConfigMap; env[].valueFrom.configMapKeyRef picks ONE key. Env vars are read at container start: a changed ConfigMap needs a Pod restart.",
+      "docs": [
+        {"title": "ConfigMaps", "url": "https://kubernetes.io/docs/concepts/configuration/configmap/"},
+        {"title": "Configure a Pod to Use a ConfigMap", "url": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -2660,6 +2760,10 @@
       "title": "Mount a Secret into a Pod",
       "scenario": "In namespace 'prod', store the database credentials (username=admin, password=s3cret) in Secret 'db-cred' and mount it read-only at /etc/db in Pod 'db-client'.",
       "tip": "Secret data is only base64-ENCODED, not encrypted. Encryption at rest needs an EncryptionConfiguration (kube-apiserver --encryption-provider-config); access must be limited with RBAC.",
+      "docs": [
+        {"title": "Secrets", "url": "https://kubernetes.io/docs/concepts/configuration/secret/"},
+        {"title": "Distribute Credentials Securely Using Secrets", "url": "https://kubernetes.io/docs/tasks/inject-data-application/distribute-credentials-secure/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -2769,6 +2873,10 @@
       "title": "Autoscale a Deployment on CPU",
       "scenario": "Deployment 'frontend' in namespace 'web' must scale between 2 and 8 replicas, targeting 60% average CPU utilisation.",
       "tip": "CPU % is computed against the container REQUESTS: no cpu request = no CPU target. And no metrics-server = no metrics at all ('kubectl top' fails too).",
+      "docs": [
+        {"title": "Horizontal Pod Autoscaling", "url": "https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/"},
+        {"title": "HorizontalPodAutoscaler Walkthrough", "url": "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale-walkthrough/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -2855,6 +2963,9 @@
       "title": "Stop sending traffic to cold Pods",
       "scenario": "Pods of Deployment 'api' (namespace 'shop') receive traffic before the application has warmed up. Add a readiness probe: HTTP GET /healthz on port 8080, first check after 5 s, then every 10 s.",
       "tip": "Readiness failing = Pod removed from the Service endpoints (no restart). Liveness failing = container restarted. Startup probe = protects slow starters from the liveness probe.",
+      "docs": [
+        {"title": "Liveness, Readiness, and Startup Probes", "url": "https://kubernetes.io/docs/concepts/workloads/pods/probes/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -2992,6 +3103,9 @@
       "title": "Run a cache on SSD nodes only",
       "scenario": "Pod 'cache' must only run on nodes with an SSD. Today that is node02 (label it disktype=ssd); tomorrow more SSD nodes will join, so do not pin the Pod to node02 by name.",
       "tip": "nodeSelector = the simplest node constraint (exact label match). nodeName bypasses the scheduler entirely.",
+      "docs": [
+        {"title": "Assigning Pods to Nodes", "url": "https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -3080,6 +3194,9 @@
       "title": "Pin analytics to two zones",
       "scenario": "Pod 'analytics' (namespace 'data') must run only in zone eu-west-1a or eu-west-1b (node label topology.kubernetes.io/zone). This is a hard requirement.",
       "tip": "required... = hard rule (Pending if nothing matches); preferred... = soft (weight). 'IgnoredDuringExecution': removing the label later does not evict running Pods.",
+      "docs": [
+        {"title": "Assigning Pods to Nodes", "url": "https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -3208,6 +3325,9 @@
       "title": "Give payments a higher priority",
       "scenario": "When the cluster is full, the Pods of Deployment 'payments' (namespace 'shop') must win over batch Pods. Create PriorityClass 'high-priority' with value 1000000 and use it for 'payments'.",
       "tip": "A higher-priority Pod that cannot be scheduled may PREEMPT (evict) lower-priority Pods. preemptionPolicy: Never gives queue priority without evicting anyone.",
+      "docs": [
+        {"title": "Pod Priority and Preemption", "url": "https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -3317,6 +3437,9 @@
       "title": "Wait for the database before starting",
       "scenario": "Pod 'web' (namespace 'shop') must not start nginx before the Service 'db' resolves in DNS. Add an init container 'wait-db' (busybox:1.36) that loops until 'nslookup db' succeeds.",
       "tip": "Init containers run one after the other, each to completion, BEFORE the app containers. With restartPolicy: Always an init container becomes a sidecar and does not block anything.",
+      "docs": [
+        {"title": "Init Containers", "url": "https://kubernetes.io/docs/concepts/workloads/pods/init-containers/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -3408,6 +3531,10 @@
       "title": "Quota on a team namespace",
       "scenario": "Namespace 'team-a' gets a quota: at most 10 Pods, 2 CPU and 4Gi of memory requested in total. Containers that do not declare requests must still be accepted.",
       "tip": "Once a quota covers requests.cpu/memory, every new Pod MUST declare those requests - or get them from a LimitRange default. Quotas are checked at admission: existing Pods are not evicted.",
+      "docs": [
+        {"title": "Resource Quotas", "url": "https://kubernetes.io/docs/concepts/policy/resource-quotas/"},
+        {"title": "Limit Ranges", "url": "https://kubernetes.io/docs/concepts/policy/limit-range/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -3517,6 +3644,9 @@
       "title": "A static Pod on node01",
       "scenario": "Run Pod 'static-web' (nginx:1.26) as a static Pod on node01: it must be managed by the kubelet, not by the API server. A ready manifest was copied to node01:/tmp/static-web.yaml. You are on node01 (ssh node01; sudo -i).",
       "tip": "Static Pod = a file in the kubelet's staticPodPath. Its API object is a read-only MIRROR named <pod>-<node>. Delete the file to delete the Pod.",
+      "docs": [
+        {"title": "Create static Pods", "url": "https://kubernetes.io/docs/tasks/configure-pod-container/static-pod/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -3598,6 +3728,10 @@
       "title": "Nightly backup CronJob",
       "scenario": "In namespace 'ops', create CronJob 'backup' (image busybox:1.36) running every day at 02:00. Keep only the last 3 successful Jobs, retry a failing Job at most 2 times, then test it right away.",
       "tip": "Cron format: minute hour day-of-month month day-of-week. Always quote the schedule in the shell. 'kubectl create job NAME --from=cronjob/CJ' = run it now.",
+      "docs": [
+        {"title": "CronJob", "url": "https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/"},
+        {"title": "Jobs", "url": "https://kubernetes.io/docs/concepts/workloads/controllers/job/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -3733,6 +3867,9 @@
       "title": "A PVC stuck in Pending",
       "scenario": "PVC 'data-pvc' is Pending. PV 'data-pv' exists: capacity 10Gi, accessModes ReadWriteOnce, storageClassName 'manual'. The PVC manifest is pvc.yaml.",
       "tip": "To bind, a PV must match the PVC's storageClassName, offer at least the requested size and include the requested access mode.",
+      "docs": [
+        {"title": "Persistent Volumes", "url": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -3836,6 +3973,9 @@
       "title": "A StorageClass that waits for the Pod",
       "scenario": "Create a StorageClass 'local-wait' for pre-created local volumes: no dynamic provisioner, binding delayed until a Pod uses the claim, and volumes kept (not deleted) when released. The manifest is sc.yaml.",
       "tip": "A StorageClass has no 'spec': provisioner, reclaimPolicy, volumeBindingMode, parameters and allowVolumeExpansion sit at the top level of the object.",
+      "docs": [
+        {"title": "Storage Classes", "url": "https://kubernetes.io/docs/concepts/storage/storage-classes/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -3932,6 +4072,10 @@
       "title": "Switch the default StorageClass",
       "scenario": "Claims without a storageClassName must now be provisioned by the class 'gp3' instead of the current default.",
       "tip": "The default class is marked by the ANNOTATION storageclass.kubernetes.io/is-default-class=\"true\". Remove the old default before setting the new one, so there is only one.",
+      "docs": [
+        {"title": "Change the default StorageClass", "url": "https://kubernetes.io/docs/tasks/administer-cluster/change-default-storage-class/"},
+        {"title": "Storage Classes", "url": "https://kubernetes.io/docs/concepts/storage/storage-classes/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -4028,6 +4172,10 @@
       "title": "A hostPath PersistentVolume",
       "scenario": "Create PV 'pv-log': 2Gi, access mode ReadWriteOnce, storageClassName 'manual', backed by the node directory /mnt/data/log. The manifest is pv.yaml.",
       "tip": "PV = capacity.storage; PVC = resources.requests.storage. Copy the PV skeleton from the docs (Configure a Pod to Use a PersistentVolume).",
+      "docs": [
+        {"title": "Persistent Volumes", "url": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"},
+        {"title": "Volumes (emptyDir, hostPath...)", "url": "https://kubernetes.io/docs/concepts/storage/volumes/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -4135,6 +4283,10 @@
       "title": "Mount a claim into nginx",
       "scenario": "In namespace 'shop', PVC 'web-data' already exists. Pod 'web' (nginx:1.27) must serve its content from that claim, mounted at /usr/share/nginx/html. The manifest is pod.yaml.",
       "tip": "Two halves, linked by name: spec.volumes[].name (pod level) and containers[].volumeMounts[].name (container level). The claim is referenced by persistentVolumeClaim.claimName.",
+      "docs": [
+        {"title": "Configure a Pod to Use a PersistentVolume for Storage", "url": "https://kubernetes.io/docs/tutorials/configuration/configure-persistent-volume-storage/"},
+        {"title": "Persistent Volumes", "url": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -4263,6 +4415,10 @@
       "title": "Keep the data when the claim goes",
       "scenario": "PV 'pv-db' (bound to claim prod/db-data) uses reclaim policy Delete. The database is being decommissioned, but its data must survive the deletion of the claim.",
       "tip": "Reclaim policy lives on the PV (spec.persistentVolumeReclaimPolicy) and can be changed at any time; the StorageClass reclaimPolicy only sets it for NEW dynamic PVs.",
+      "docs": [
+        {"title": "Change the Reclaim Policy of a PersistentVolume", "url": "https://kubernetes.io/docs/tasks/administer-cluster/change-pv-reclaim-policy/"},
+        {"title": "Persistent Volumes", "url": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -4340,6 +4496,10 @@
       "title": "Give a Released volume a new claim",
       "scenario": "PV 'pv-archive' (Retain, class 'manual', 5Gi) is Released since its old claim was deleted. A new claim 'archive-v2' in namespace 'archive' must reuse it and its data. The claim manifest is pvc.yaml.",
       "tip": "Released != Available: the PV still points at the deleted claim through spec.claimRef. Removing claimRef makes it Available again (the data is untouched).",
+      "docs": [
+        {"title": "Change the Reclaim Policy of a PersistentVolume", "url": "https://kubernetes.io/docs/tasks/administer-cluster/change-pv-reclaim-policy/"},
+        {"title": "Persistent Volumes", "url": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -4449,6 +4609,10 @@
       "title": "A dynamic claim that waits",
       "scenario": "In namespace 'apps', PVC 'cache' (storageClassName 'csi-hostpath') was created 10 minutes ago and is still Pending. No PV was created. The class uses volumeBindingMode WaitForFirstConsumer.",
       "tip": "WaitForFirstConsumer: a Pending PVC with the event 'waiting for first consumer' is NORMAL. The PV is provisioned when a Pod using the claim is scheduled.",
+      "docs": [
+        {"title": "Dynamic Volume Provisioning", "url": "https://kubernetes.io/docs/concepts/storage/dynamic-provisioning/"},
+        {"title": "Storage Classes", "url": "https://kubernetes.io/docs/concepts/storage/storage-classes/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -4522,6 +4686,10 @@
       "title": "Grow a claim from 2Gi to 5Gi",
       "scenario": "PVC 'reports' in namespace 'finance' (class 'standard', CSI driver with expansion support) is full. Grow it from 2Gi to 5Gi. Its manifest was exported to pvc.yaml.",
       "tip": "Only spec.resources.requests.storage of a bound claim can be raised, and only if the class has allowVolumeExpansion: true. Shrinking is never allowed.",
+      "docs": [
+        {"title": "Storage Classes", "url": "https://kubernetes.io/docs/concepts/storage/storage-classes/"},
+        {"title": "Persistent Volumes", "url": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -4624,6 +4792,9 @@
       "title": "Share a scratch volume between containers",
       "scenario": "Pod 'logger' has two containers: 'app' writes /var/log/app/out.log, 'shipper' must read the same file under /logs. Use an emptyDir volume named 'logs'. The manifest is pod.yaml.",
       "tip": "emptyDir lives as long as the Pod: it survives container restarts but is deleted with the Pod. Each container may mount it at a different path.",
+      "docs": [
+        {"title": "Volumes (emptyDir, hostPath...)", "url": "https://kubernetes.io/docs/concepts/storage/volumes/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -4751,6 +4922,10 @@
       "title": "Allow API -> DB on port 5432",
       "scenario": "Namespace 'prod' has a default-deny ingress policy. Pods labelled app=db must accept TCP 5432 only from Pods labelled app=api (same namespace).",
       "tip": "Within one 'from' list, separate items are OR-ed; selectors inside ONE item are AND-ed. An empty rule '- {}' allows everything!",
+      "docs": [
+        {"title": "Network Policies", "url": "https://kubernetes.io/docs/concepts/services-networking/network-policies/"},
+        {"title": "Declare Network Policy", "url": "https://kubernetes.io/docs/tasks/administer-cluster/declare-network-policy/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -4838,6 +5013,10 @@
       "title": "Expose a Deployment outside the cluster",
       "scenario": "Deployment 'web' (label app=web) listens on container port 8080. Expose it as Service 'web-svc' on port 80, reachable from outside through every node.",
       "tip": "port = Service port, targetPort = container port. A Service without endpoints means the selector matches no Ready Pod.",
+      "docs": [
+        {"title": "Service", "url": "https://kubernetes.io/docs/concepts/services-networking/service/"},
+        {"title": "Using a Service to Expose Your App", "url": "https://kubernetes.io/docs/tutorials/kubernetes-basics/expose/expose-intro/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -4882,6 +5061,10 @@
       "title": "Expose a Pod inside the cluster",
       "scenario": "Pod 'nginx' (label run=nginx) runs in namespace 'web' and listens on port 80. Expose it inside the cluster as Service 'nginx-svc' on port 8080, then test it.",
       "tip": "kubectl expose copies the Pod's labels into the Service selector. 'kubectl create service' does NOT: it uses app=<service-name>.",
+      "docs": [
+        {"title": "Service", "url": "https://kubernetes.io/docs/concepts/services-networking/service/"},
+        {"title": "Connecting Applications with Services", "url": "https://kubernetes.io/docs/tutorials/services/connect-applications-service/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -4924,6 +5107,9 @@
       "title": "Pin a NodePort to 30080",
       "scenario": "Deployment 'shop' (label app=shop) in namespace 'shop' listens on port 80. Expose it as NodePort Service 'shop-np' on port 80, and the node port MUST be 30080.",
       "tip": "kubectl expose has no --node-port flag: generate YAML with --dry-run=client -o yaml and add spec.ports[].nodePort. Default range: 30000-32767.",
+      "docs": [
+        {"title": "Service", "url": "https://kubernetes.io/docs/concepts/services-networking/service/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -5020,6 +5206,10 @@
       "title": "Stable DNS names for StatefulSet Pods",
       "scenario": "StatefulSet 'db' (label app=db, 3 replicas) in namespace 'data' needs a headless Service so each Pod gets its own DNS name. Check the name it expects, create it, then resolve Pod db-0.",
       "tip": "Pod DNS in a StatefulSet: <pod>.<serviceName>.<ns>.svc.cluster.local - it only exists if spec.serviceName names a headless Service (clusterIP: None).",
+      "docs": [
+        {"title": "StatefulSets", "url": "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"},
+        {"title": "Service", "url": "https://kubernetes.io/docs/concepts/services-networking/service/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -5111,6 +5301,9 @@
       "title": "Resolve a Service across namespaces",
       "scenario": "Service 'api' (port 8080) lives in namespace 'backend'. Pod 'web' in namespace 'ui' cannot reach 'http://api:8080'. Investigate DNS.",
       "tip": "Service FQDN: <svc>.<ns>.svc.cluster.local. A bare name only resolves in the client Pod's own namespace (resolv.conf search list).",
+      "docs": [
+        {"title": "DNS for Services and Pods", "url": "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -5173,6 +5366,9 @@
       "title": "Pod-to-pod across namespaces",
       "scenario": "Pod 'client' (namespace 'team-a', busybox image) must reach Pod 'server' (namespace 'team-b', nginx on port 80) directly - there is no Service.",
       "tip": "Every Pod gets a routable IP; any Pod can reach any Pod IP, across nodes and namespaces, without NAT - unless a NetworkPolicy says otherwise.",
+      "docs": [
+        {"title": "Cluster Networking", "url": "https://kubernetes.io/docs/concepts/cluster-administration/networking/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -5235,6 +5431,9 @@
       "title": "Default-deny ingress for a namespace",
       "scenario": "Namespace 'secure' must block all incoming traffic to every Pod by default. Pods there include 'web' behind Service 'web' (port 80).",
       "tip": "podSelector: {} selects ALL Pods of the namespace. policyTypes [Ingress] with no ingress rules = deny all ingress.",
+      "docs": [
+        {"title": "Network Policies", "url": "https://kubernetes.io/docs/concepts/services-networking/network-policies/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -5313,6 +5512,9 @@
       "title": "Let the monitoring namespace in",
       "scenario": "Namespace 'prod' has a default-deny ingress policy. Pods labelled app=web (Service 'web', port 80) must accept TCP 80 from every Pod of namespace 'monitoring' - and nothing else.",
       "tip": "Every namespace automatically carries kubernetes.io/metadata.name=<name>: the safest label to select a namespace by name.",
+      "docs": [
+        {"title": "Network Policies", "url": "https://kubernetes.io/docs/concepts/services-networking/network-policies/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -5419,6 +5621,9 @@
       "title": "Lock down egress, keep DNS",
       "scenario": "In namespace 'app', Pods labelled app=frontend (busybox-based image) may only open connections to Pods app=backend on TCP 8080, plus DNS (UDP and TCP 53) to any destination.",
       "tip": "Once a policy selects a Pod for Egress, DNS is blocked too unless you allow port 53. A rule with 'ports' but no 'to' allows those ports to any destination.",
+      "docs": [
+        {"title": "Network Policies", "url": "https://kubernetes.io/docs/concepts/services-networking/network-policies/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -5530,6 +5735,9 @@
       "title": "Create an Ingress in one command",
       "scenario": "In namespace 'shop', Service 'shop-svc' (port 80) must be published by the 'nginx' ingress controller for host shop.example.com, for every path.",
       "tip": "kubectl create ingress --rule=\"host/path=svc:port\": the path is Exact by default; end it with '*' (e.g. '/*') for a Prefix match.",
+      "docs": [
+        {"title": "Ingress", "url": "https://kubernetes.io/docs/concepts/services-networking/ingress/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -5586,6 +5794,9 @@
       "title": "Route /api to a second Service",
       "scenario": "Ingress 'store' (namespace 'store', host store.example.com) sends everything to web-svc:80. Requests to /api and below (e.g. /api/orders) must go to api-svc:8080.",
       "tip": "pathType Prefix matches whole path elements (/api matches /api and /api/orders, not /apix); Exact matches one path only. The longest match wins.",
+      "docs": [
+        {"title": "Ingress", "url": "https://kubernetes.io/docs/concepts/services-networking/ingress/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -5689,6 +5900,10 @@
       "title": "An Ingress nobody serves",
       "scenario": "Ingress 'blog' (namespace 'blog') has no ADDRESS: no controller picked it up. Several controllers are installed. It must be served by the ingress-nginx controller.",
       "tip": "spec.ingressClassName holds the IngressClass NAME (not the controller string). The annotation ingressclass.kubernetes.io/is-default-class=\"true\" on an IngressClass makes it the default.",
+      "docs": [
+        {"title": "Ingress", "url": "https://kubernetes.io/docs/concepts/services-networking/ingress/"},
+        {"title": "Ingress Controllers", "url": "https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -5791,6 +6006,9 @@
       "title": "Create a Gateway listener",
       "scenario": "The Gateway API CRDs and a controller are installed. Create Gateway 'web-gw' in namespace 'infra' with one HTTP listener on port 80 for *.example.com.",
       "tip": "GatewayClass = which controller (cluster-scoped, like IngressClass); Gateway = listeners (name, protocol, port, hostname); routes attach to it.",
+      "docs": [
+        {"title": "Gateway API", "url": "https://kubernetes.io/docs/concepts/services-networking/gateway/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -5896,6 +6114,9 @@
       "title": "Route /cart through a Gateway",
       "scenario": "Gateway 'shop-gw' (namespace 'shop') has an HTTP listener. Requests for shop.example.com/cart (and below) must reach Service 'cart' (port 8080) in the same namespace.",
       "tip": "HTTPRoute = parentRefs (which Gateway) + rules: matches (path type PathPrefix/Exact) and backendRefs (Service name + port).",
+      "docs": [
+        {"title": "Gateway API", "url": "https://kubernetes.io/docs/concepts/services-networking/gateway/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -5993,6 +6214,9 @@
       "title": "Canary 90/10 with an HTTPRoute",
       "scenario": "HTTPRoute 'checkout' (namespace 'shop') sends all traffic to Service checkout-v1:8080. Send 10% of it to checkout-v2:8080 (canary). shop.example.com resolves to the Gateway.",
       "tip": "Weights are relative within ONE rule's backendRefs (weight defaults to 1). 90/10 = 9/1 = 900/100.",
+      "docs": [
+        {"title": "Gateway API", "url": "https://kubernetes.io/docs/concepts/services-networking/gateway/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -6082,6 +6306,9 @@
       "title": "Forward a corporate domain",
       "scenario": "Pods must resolve names under corp.example (e.g. git.corp.example) through the company DNS server 10.0.0.53. Everything else keeps using the node's resolvers.",
       "tip": "A stub domain = an extra server block in the Corefile: 'corp.example:53 { forward . 10.0.0.53 }'. One forward plugin per server block.",
+      "docs": [
+        {"title": "Customizing DNS Service", "url": "https://kubernetes.io/docs/tasks/administer-cluster/dns-custom-nameservers/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -6197,6 +6424,10 @@
       "title": "Find the Service and Pod CIDRs",
       "scenario": "On kubeadm cluster 'k8s-prod' (you are on the control-plane node), report the Service IP range and the Pod CIDR, then the Pod CIDR of node worker1.",
       "tip": "Service range = kube-apiserver --service-cluster-ip-range. Pod range = kube-controller-manager --cluster-cidr; per node: spec.podCIDR.",
+      "docs": [
+        {"title": "Cluster Networking", "url": "https://kubernetes.io/docs/concepts/cluster-administration/networking/"},
+        {"title": "Service", "url": "https://kubernetes.io/docs/concepts/services-networking/service/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -6255,6 +6486,9 @@
       "title": "Reach Grafana from your laptop",
       "scenario": "Service 'grafana' (namespace 'monitoring') listens on port 3000 and is ClusterIP only. You need it at http://localhost:8080 for a quick test.",
       "tip": "port-forward LOCAL:REMOTE tunnels through the API server to ONE Pod picked at start: no load balancing, and it dies with that Pod or with kubectl.",
+      "docs": [
+        {"title": "kubectl port-forward", "url": "https://kubernetes.io/docs/reference/kubectl/generated/kubectl_port-forward/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -6307,6 +6541,9 @@
       "title": "An in-cluster name for an external API",
       "scenario": "Apps in namespace 'payments' must call the partner API as 'billing' (in-cluster name). The real host is billing.partner.example.com.",
       "tip": "ExternalName = a DNS CNAME only: no ClusterIP, no endpoints, no proxying, ports are ignored. HTTP Host/TLS names still see 'billing'.",
+      "docs": [
+        {"title": "Service", "url": "https://kubernetes.io/docs/concepts/services-networking/service/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -6357,6 +6594,11 @@
       "title": "A Pod in CrashLoopBackOff",
       "scenario": "Pod 'cache' (namespace default) keeps restarting.",
       "tip": "CrashLoopBackOff is a symptom, not a cause: 'describe' for the reason/exit code, 'logs --previous' for the app's last words.",
+      "docs": [
+        {"title": "Determine the Reason for Pod Failure", "url": "https://kubernetes.io/docs/tasks/debug/debug-application/determine-reason-pod-failure/"},
+        {"title": "Debug Pods", "url": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"},
+        {"title": "Resource Management for Pods and Containers", "url": "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -6449,6 +6691,10 @@
       "title": "A NotReady worker node",
       "scenario": "Node 'node01' is NotReady. Walk from the cluster view down to the root cause on the node, then fix it.",
       "tip": "The kubelet is NOT a Pod: it is a systemd service on the node. NotReady almost always means 'kubelet stopped talking to the API server'.",
+      "docs": [
+        {"title": "Troubleshooting Clusters", "url": "https://kubernetes.io/docs/tasks/debug/debug-cluster/"},
+        {"title": "kubelet reference", "url": "https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -6538,6 +6784,9 @@
       "title": "Pods cannot resolve Service names",
       "scenario": "Pods report 'bad address' when resolving Service names. Test DNS, inspect CoreDNS, then fix its configuration.",
       "tip": "CoreDNS Pods carry the label k8s-app=kube-dns and live in kube-system. Their config is the 'coredns' ConfigMap (the Corefile).",
+      "docs": [
+        {"title": "Debugging DNS Resolution", "url": "https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -6628,6 +6877,10 @@
       "title": "A Deployment stuck in ImagePullBackOff",
       "scenario": "Deployment 'api' (namespace default, container 'api') was just updated and its new Pod never starts. The intended image is nginx:1.27.",
       "tip": "ImagePullBackOff = the kubelet cannot pull: wrong name/tag, private registry without imagePullSecrets, or no network. The exact reason is in the Events of 'describe pod'.",
+      "docs": [
+        {"title": "Images (pull policy, private registries)", "url": "https://kubernetes.io/docs/concepts/containers/images/"},
+        {"title": "Debug Pods", "url": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -6706,6 +6959,10 @@
       "title": "Pods Pending: Insufficient cpu",
       "scenario": "The 3 Pods of Deployment 'batch' (namespace default) stay Pending. The team confirms the app needs only 500m of CPU.",
       "tip": "The scheduler packs Pods by REQUESTS, not by real usage: compare the Pod's requests with the node's Allocatable minus 'Allocated resources'.",
+      "docs": [
+        {"title": "Resource Management for Pods and Containers", "url": "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"},
+        {"title": "Debug Pods", "url": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -6855,6 +7112,9 @@
       "title": "A Pod Pending because of a forgotten taint",
       "scenario": "Pod 'monitor' (namespace default) is Pending. The cluster has one control-plane node and one worker, node01, whose maintenance window ended yesterday.",
       "tip": "Before adding a toleration, ask whether the taint is intentional. A leftover maintenance taint must be removed; a deliberate reservation calls for a toleration.",
+      "docs": [
+        {"title": "Taints and Tolerations", "url": "https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -6936,6 +7196,9 @@
       "title": "A nodeSelector that matches no node",
       "scenario": "Pod 'ssd-app' (manifest pod.yaml, namespace default) must run on an SSD node but stays Pending. The node labels are the reference: do not change them.",
       "tip": "Label keys and values are case-sensitive. 'kubectl get nodes --show-labels' (or '-L key' for one column) shows what selectors can match.",
+      "docs": [
+        {"title": "Assigning Pods to Nodes", "url": "https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -7034,6 +7297,9 @@
       "title": "CrashLoopBackOff after a command change",
       "scenario": "Deployment 'worker' (manifest deploy.yaml, namespace default) runs a small Python web server on port 8080. Since the last change its Pods crash-loop.",
       "tip": "'kubectl logs --previous' (-p) shows the output of the container instance that just crashed. 'command' replaces the image ENTRYPOINT, 'args' replaces CMD.",
+      "docs": [
+        {"title": "Debug Pods", "url": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -7139,6 +7405,10 @@
       "title": "A Pod waiting for a missing Secret",
       "scenario": "Pod 'shop' (namespace default) is stuck in CreateContainerConfigError right after deployment.",
       "tip": "CreateContainerConfigError = the kubelet cannot build the container's config: usually a missing ConfigMap/Secret or key referenced by env/envFrom. Create it and the kubelet retries by itself.",
+      "docs": [
+        {"title": "Secrets", "url": "https://kubernetes.io/docs/concepts/configuration/secret/"},
+        {"title": "Debug Pods", "url": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -7213,6 +7483,9 @@
       "title": "A Service with no endpoints",
       "scenario": "Service 'web' (namespace default) times out although its Pods are Running and Ready.",
       "tip": "No endpoints = the selector matches no Ready Pod. Compare 'describe svc' (Selector) with 'get pods --show-labels'.",
+      "docs": [
+        {"title": "Debug Services", "url": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -7340,6 +7613,9 @@
       "title": "Running but never Ready",
       "scenario": "Deployment 'orders' (namespace default): all 3 Pods are Running with no restarts, but READY shows 0/1 and its Service has no endpoints.",
       "tip": "A failing readinessProbe never restarts a container: it only keeps the Pod out of the Service endpoints. Restarts come from a failing livenessProbe.",
+      "docs": [
+        {"title": "Liveness, Readiness, and Startup Probes", "url": "https://kubernetes.io/docs/concepts/workloads/pods/probes/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -7478,6 +7754,9 @@
       "title": "Roll back a stuck rollout",
       "scenario": "Deployment 'payments' (namespace default) was updated to a new image; the rollout never finishes and the new Pods crash. Restore the last working version.",
       "tip": "rollout history lists revisions (CHANGE-CAUSE comes from the kubernetes.io/change-cause annotation); 'rollout undo' goes back one revision, '--to-revision=N' to a chosen one.",
+      "docs": [
+        {"title": "Deployments", "url": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -7561,6 +7840,10 @@
       "title": "A Pod stuck in Init:0/1",
       "scenario": "Pod 'shop-api' (namespace default) has an init container 'wait-db' that waits until the name 'db' resolves; the main container 'api' never starts.",
       "tip": "Init containers run one by one, each to completion, before the app containers. Read them with 'kubectl logs POD -c INIT_CONTAINER'.",
+      "docs": [
+        {"title": "Init Containers", "url": "https://kubernetes.io/docs/concepts/workloads/pods/init-containers/"},
+        {"title": "Debug Pods", "url": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -7673,6 +7956,10 @@
       "title": "Logs of a multi-container Pod",
       "scenario": "Pod 'web' (namespace default) has two containers: 'nginx' and a sidecar 'log-shipper' that stopped forwarding logs.",
       "tip": "Without -c, kubectl logs picks the default (first) container and says so. -f follows, --tail=N limits lines, --since=10m limits time, --all-containers reads them all.",
+      "docs": [
+        {"title": "Logging Architecture", "url": "https://kubernetes.io/docs/concepts/cluster-administration/logging/"},
+        {"title": "kubectl Quick Reference", "url": "https://kubernetes.io/docs/reference/kubectl/quick-reference/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -7754,6 +8041,9 @@
       "title": "Pods that never finish terminating",
       "scenario": "Pod 'legacy' (namespace default) has been Terminating for 25 minutes. The operator that used to manage it was uninstalled last week.",
       "tip": "Terminating forever: either a finalizer nobody removes (patch it away) or a node that is gone (force delete). --force does NOT bypass finalizers.",
+      "docs": [
+        {"title": "Finalizers", "url": "https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -7835,6 +8125,9 @@
       "title": "Find the right events fast",
       "scenario": "Something is failing in namespace 'shop'. Use events to find what, without scrolling through hundreds of lines.",
       "tip": "Events are not sorted by default and expire after 1 hour. --sort-by=.lastTimestamp orders them; --field-selector filters on involvedObject.name, reason or type.",
+      "docs": [
+        {"title": "Debug Running Pods", "url": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -7916,6 +8209,9 @@
       "title": "Find the hungriest Pod",
       "scenario": "The cluster is short on memory. Find the Pod using the most memory in the whole cluster and record its name in /opt/course/top-pod.txt. metrics-server is installed and working.",
       "tip": "kubectl top shows REAL usage (from metrics-server); describe node shows REQUESTS. --sort-by accepts cpu or memory.",
+      "docs": [
+        {"title": "Resource metrics pipeline", "url": "https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -7989,6 +8285,10 @@
       "title": "The API server is gone after an edit",
       "scenario": "A colleague edited /etc/kubernetes/manifests/kube-apiserver.yaml on 'controlplane'. Since then kubectl cannot connect. Find out why without kubectl, then fix the manifest.",
       "tip": "When the API server is down, kubectl is blind: go to the node and use crictl (ps -a, logs). Back up a manifest before editing it - but never inside /etc/kubernetes/manifests.",
+      "docs": [
+        {"title": "Troubleshooting Clusters", "url": "https://kubernetes.io/docs/tasks/debug/debug-cluster/"},
+        {"title": "Kubernetes Components", "url": "https://kubernetes.io/docs/concepts/overview/components/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -8086,6 +8386,10 @@
       "title": "New Pods are never scheduled",
       "scenario": "Every new Pod stays Pending: no node assigned and not a single event. Existing Pods keep running. Find the broken component and fix its manifest.",
       "tip": "Pending with NO events at all means no scheduler looked at the Pod. Pending WITH a 'FailedScheduling' event means the scheduler ran but found no node.",
+      "docs": [
+        {"title": "Kubernetes Components", "url": "https://kubernetes.io/docs/concepts/overview/components/"},
+        {"title": "Troubleshooting Clusters", "url": "https://kubernetes.io/docs/tasks/debug/debug-cluster/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -8198,6 +8502,9 @@
       "title": "A Deployment that creates nothing",
       "scenario": "'kubectl create deploy web --image=nginx --replicas=3' succeeded, but no ReplicaSet and no Pod ever appear. Find the component that should react and fix it.",
       "tip": "Deployment -> ReplicaSet -> Pods is the controller-manager's work; Pod -> node is the scheduler's. 'No ReplicaSet' points at the controller-manager.",
+      "docs": [
+        {"title": "Kubernetes Components", "url": "https://kubernetes.io/docs/concepts/overview/components/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -8304,6 +8611,10 @@
       "title": "The API server cannot reach etcd",
       "scenario": "kubectl is refused on 6443. On 'controlplane', crictl shows etcd Running but kube-apiserver exiting again and again. Find and fix the broken link.",
       "tip": "etcd: 2379 = client port (the API server connects here), 2380 = peer port (etcd members only). The API server reaches etcd over TLS with the --etcd-cafile/certfile/keyfile flags.",
+      "docs": [
+        {"title": "Operating etcd clusters for Kubernetes", "url": "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"},
+        {"title": "Troubleshooting Clusters", "url": "https://kubernetes.io/docs/tasks/debug/debug-cluster/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -8406,6 +8717,10 @@
       "title": "A kubelet that will not start",
       "scenario": "Node 'node01' is NotReady. On node01 the kubelet service is enabled but keeps exiting with an error. Read its logs, find the bad setting in its systemd configuration and fix it.",
       "tip": "kubelet settings live in 3 places: the systemd drop-in 10-kubeadm.conf (flags), /var/lib/kubelet/kubeadm-flags.env, and /var/lib/kubelet/config.yaml (KubeletConfiguration). 'systemctl cat kubelet' shows the unit and its drop-ins.",
+      "docs": [
+        {"title": "kubelet reference", "url": "https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet/"},
+        {"title": "Troubleshooting Clusters", "url": "https://kubernetes.io/docs/tasks/debug/debug-cluster/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -8529,6 +8844,10 @@
       "title": "The container runtime is down",
       "scenario": "Node 'node01' turned NotReady after maintenance. The kubelet is running, but complains about the runtime. Diagnose and bring the node back.",
       "tip": "kubelet and containerd are BOTH systemd services on every node. 'container runtime is down' = look at containerd; 'crictl info' shows whether the CRI endpoint answers.",
+      "docs": [
+        {"title": "Container Runtimes", "url": "https://kubernetes.io/docs/setup/production-environment/container-runtimes/"},
+        {"title": "Debugging Kubernetes nodes with crictl", "url": "https://kubernetes.io/docs/tasks/debug/debug-cluster/crictl/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -8593,6 +8912,10 @@
       "title": "kubectl cannot reach the cluster",
       "scenario": "On 'controlplane', kubectl suddenly fails, yet every control-plane container is Running. Inspect your kubeconfig and fix it.",
       "tip": "'connection refused' + a healthy kube-apiserver = check the server: line of your kubeconfig. 'kubectl config view --minify' shows only what the current context uses.",
+      "docs": [
+        {"title": "Configure Access to Multiple Clusters", "url": "https://kubernetes.io/docs/tasks/access-application-cluster/configure-access-multiple-clusters/"},
+        {"title": "Troubleshooting Clusters", "url": "https://kubernetes.io/docs/tasks/debug/debug-cluster/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -8696,6 +9019,9 @@
       "title": "The cluster certificates have expired",
       "scenario": "Logged in as root on 'controlplane' after a year without upgrades, kubectl fails with x509 errors. Check, renew, restart and get your access back.",
       "tip": "kubeadm client/server certificates last 1 year (the CAs 10 years). 'kubeadm certs check-expiration', then 'kubeadm certs renew all', then restart the static Pods and refresh your kubeconfig.",
+      "docs": [
+        {"title": "Certificate Management with kubeadm", "url": "https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-certs/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -8792,6 +9118,9 @@
       "title": "Pods evicted from a full node",
       "scenario": "Several Pods on 'node01' show status Evicted and new Pods avoid that node. Find the pressure condition, free space on the node and clean up.",
       "tip": "Node conditions: MemoryPressure, DiskPressure, PIDPressure. Under pressure the kubelet evicts Pods and the node gets a matching node.kubernetes.io/*-pressure taint.",
+      "docs": [
+        {"title": "Node-pressure Eviction", "url": "https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -8881,6 +9210,9 @@
       "title": "Nodes NotReady: no network plugin",
       "scenario": "A freshly built kubeadm cluster (--pod-network-cidr=10.244.0.0/16): every node is NotReady and the CoreDNS Pods stay Pending. The Flannel manifest was downloaded to /root/kube-flannel.yml.",
       "tip": "'cni plugin not initialized' = no CNI config in /etc/cni/net.d. kubeadm does not install a network plugin: you must apply one (Flannel, Calico, Cilium...).",
+      "docs": [
+        {"title": "Installing Addons (networking)", "url": "https://kubernetes.io/docs/concepts/cluster-administration/addons/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -8951,6 +9283,9 @@
       "title": "Service IPs answer nothing",
       "scenario": "From node01, the Pod IP behind Service 'web' answers, but the Service's ClusterIP times out. The EndpointSlice is correct. Find the broken component and fix its configuration.",
       "tip": "Pod IP works but ClusterIP does not = kube-proxy (it programs the iptables/nftables rules for Services). kubeadm runs it as DaemonSet kube-proxy, configured by ConfigMap kube-proxy, both in kube-system.",
+      "docs": [
+        {"title": "Virtual IPs and Service Proxies", "url": "https://kubernetes.io/docs/reference/networking/virtual-ips/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -9083,6 +9418,9 @@
       "title": "kubectl top has no metrics",
       "scenario": "metrics-server was installed in kube-system from the upstream manifest, but 'kubectl top nodes' fails. In this lab the kubelets use self-signed serving certificates.",
       "tip": "kubectl top -> APIService v1beta1.metrics.k8s.io -> Service/Deployment metrics-server in kube-system -> kubelets on :10250. Follow that chain.",
+      "docs": [
+        {"title": "Resource metrics pipeline", "url": "https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {
@@ -9192,6 +9530,10 @@
       "title": "Reading etcd's logs with the API down",
       "scenario": "You are root on 'controlplane'. The API server is unreachable and you suspect etcd. Get etcd's logs without kubectl, two different ways.",
       "tip": "No API = no kubectl logs. On the node: 'crictl ps -a --name X' + 'crictl logs ID', or the files under /var/log/pods/<ns>_<pod>_<uid>/<container>/.",
+      "docs": [
+        {"title": "Debugging Kubernetes nodes with crictl", "url": "https://kubernetes.io/docs/tasks/debug/debug-cluster/crictl/"},
+        {"title": "Create static Pods", "url": "https://kubernetes.io/docs/tasks/configure-pod-container/static-pod/"}
+      ],
       "start": "s1",
       "steps": {
         "s1": {

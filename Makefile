@@ -1,7 +1,7 @@
 PYTHON ?= python3
 APP    := cka_trainer.py
 
-.PHONY: help first-start start-exam start-exam-silent start-exam-here install-retro uninstall list validate test screenshot readme-media dist
+.PHONY: help first-start start-exam start-learn start-learn-here start-exam-silent start-exam-here install-retro uninstall list validate test check-links screenshot readme-media dist
 
 # tmux lives in the 'cka-dev' toolbox on Fedora Silverblue
 TMUX_RUN := $(if $(shell command -v tmux),,toolbox run -c cka-dev)
@@ -14,6 +14,12 @@ first-start: install-retro ## Set up fonts and terminal, then play in the curren
 
 start-exam: install-retro ## Set up missing dependencies and launch a retro window (ARGS="--domain storage")
 	@tools/play.sh $(ARGS)
+
+start-learn: install-retro ## Learn mode: right answers marked, links to the Kubernetes docs
+	@tools/play.sh --learn $(ARGS)
+
+start-learn-here: ## Learn mode in the current terminal (no new window)
+	@$(PYTHON) $(APP) --learn $(ARGS)
 
 start-exam-silent: install-retro ## Same, without music and sound effects
 	@tools/play.sh --silent $(ARGS)
@@ -35,6 +41,9 @@ validate: ## Check questions.json
 
 test: validate ## Validate the database and run the unit tests
 	@$(PYTHON) -m unittest -v
+
+check-links: ## Check that every documentation link of questions.json still works (needs network)
+	@$(PYTHON) tools/check_links.py
 
 screenshot: ## Text screenshot via tmux (SHOT="100 30 'Down Enter' 3")
 	@$(TMUX_RUN) sh -c "tools/screenshot.sh $(SHOT)"
