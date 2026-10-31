@@ -5,6 +5,21 @@ A retro arcade game in your terminal to prepare the **Certified Kubernetes Admin
 before the countdown runs out, just like in the real exam. Free software under the
 [GNU GPL v3.0](LICENSE).
 
+## Quick start
+
+Try it in one minute: only Python 3.9+ is needed, nothing to install.
+
+```bash
+git clone https://github.com/Les-filles-et-les-garcons-de-la-tech/cka-megatrainer.git
+cd cka-megatrainer
+python3 cka_trainer.py     # play now, in this terminal (at least 70x20, ideally 100x38)
+```
+
+Want the full 80s look, with the game in its own window and a retro pixel font? Run
+`make start-exam` instead: it installs what is missing by itself (fonts, a terminal) and opens
+the game window. Works on Linux and macOS (on a Mac, run `xcode-select --install` first if
+`python3` or `make` is missing). Details in [Setup details](#setup-details).
+
 <p align="center"><img src="docs/media/title.svg" alt="Title screen: rotating Kubernetes helm, rainbow CKA logo, starfield and menu" width="760"></p>
 
 ## What makes it different
@@ -31,68 +46,6 @@ but you can only answer the way the exam makes you work: **with your keyboard, u
   **YOU WIN** and **GAME OVER**. Your results come up as `kubectl get pods`.
 - 🕹️ **And it's an 80s arcade game.** A pixel-art Kubernetes helm, a chiptune soundtrack, a LEVEL
   screen per question and fireworks when you pass. Revision you actually want to come back to.
-
-## Quick start
-
-```bash
-git clone https://github.com/Les-filles-et-les-garcons-de-la-tech/cka-megatrainer.git
-cd cka-megatrainer
-make start-exam        # install missing retro components automatically, then play!
-```
-
-Only Python 3.9+ and its standard library are needed (tested with Python 3.9 to 3.15). The
-terminal must be at least 70x20 (100x38 is the intended size). This works on Linux and macOS;
-on macOS, install Apple's command-line tools with `xcode-select --install` if Python or `make`
-is missing.
-
-`make start-exam` checks setup automatically on every launch, reusing installed fonts and
-supported terminals. No separate installation command is needed:
-
-- **macOS**: installs **Kitty** through [Homebrew](https://brew.sh/) if neither Kitty nor
-  Alacritty is found. Without Homebrew, it prints instructions and plays in your current terminal.
-- **Linux**: installs missing `curl`, `fontconfig` and a terminal (`foot` on Wayland, otherwise
-  `xterm`) using apt, dnf, pacman, zypper or apk. System package installation may ask for your
-  sudo password. Fedora Silverblue uses the existing `cka-dev` toolbox setup instead.
-
-If installation fails, fix the reported problem and rerun `make start-exam`.
-
-For a **fast start without setup**, or to play again using your current terminal's configured font:
-
-```bash
-make start-exam-here
-```
-
-### Reset installation for testing
-
-Close the game window, then run:
-
-```bash
-make uninstall
-make start-exam        # exercise installation again
-```
-
-Setup records the fonts, licenses, terminal and system packages it installs. `make uninstall`
-removes those recorded components, the game sound cache, and local `dist/` and `__pycache__/`
-outputs. On macOS it also removes setup-installed Kitty's cache and downloaded installer.
-Pre-existing fonts and terminals are preserved. Linux package removal may ask for your sudo
-password; a toolbox created by setup is removed, while a pre-existing toolbox is kept and only
-setup-installed packages are removed from it. The repository and source changes are preserved.
-Ownership tracking applies to installations made with this version of setup.
-
-### Single-file version
-
-The whole game (code, 100 questions, sounds) also fits in **one file**, `cka-megatrainer.pyz`
-(about 140 KB), a standard Python zip application:
-
-```bash
-make dist                      # builds dist/cka-megatrainer.pyz
-./dist/cka-megatrainer.pyz     # or: python3 dist/cka-megatrainer.pyz
-```
-
-Copy that file anywhere, to any Linux or macOS machine with Python 3.9+ (macOS ships Python 3.9
-with its command-line tools), and run it: nothing else is needed. All options work the same
-(`--exam`, `--silent`, `--theme soft`...). It plays in the current terminal: the retro font window
-of `make start-exam` needs the repository and handles its own setup.
 
 ## Screenshots
 
@@ -133,8 +86,9 @@ shows each domain's share of a 20-question exam:
 | Workloads & Scheduling | 15 % | 3 | 15 questions |
 | Storage | 10 % | 2 | 10 questions |
 
-The domain entries are for focused practice: they play all the questions of that domain.
-**ALL QUESTIONS** plays the whole library.
+Each domain entry plays a **short round on that domain**: its share of a 20-question exam, drawn
+at random (e.g. STORAGE: 2 questions, TROUBLESHOOTING: 6). **ALL QUESTIONS** plays the whole
+library; `--domain NAME` on the command line plays all the questions of one domain.
 
 At the end, your exam score is the share of correct steps (partial credit, like the real exam).
 At **66 % or more**, the CKA pass mark, you get **YOU WIN** with fireworks; below, **GAME OVER**. Either way
@@ -185,6 +139,54 @@ make help                                # all targets
 ./cka_trainer.py --list                      # list question ids
 ./cka_trainer.py --validate                  # check questions.json
 ```
+
+## Setup details
+
+`make start-exam` checks setup automatically on every launch, reusing installed fonts and
+supported terminals. No separate installation command is needed:
+
+- **macOS**: installs **Kitty** through [Homebrew](https://brew.sh/) if neither Kitty nor
+  Alacritty is found. Without Homebrew, it prints instructions and plays in your current terminal.
+- **Linux**: installs missing `curl`, `fontconfig` and a terminal (`foot` on Wayland, otherwise
+  `xterm`) using apt, dnf, pacman, zypper or apk. System package installation may ask for your
+  sudo password. Fedora Silverblue uses the existing `cka-dev` toolbox setup instead.
+
+If installation fails, fix the reported problem and rerun `make start-exam`.
+
+`make start-exam-here` (or `python3 cka_trainer.py`) skips the setup and plays in your current
+terminal, with its configured font.
+
+### Reset installation for testing
+
+Close the game window, then run:
+
+```bash
+make uninstall
+make start-exam        # exercise installation again
+```
+
+Setup records the fonts, licenses, terminal and system packages it installs. `make uninstall`
+removes those recorded components, the game sound cache, and local `dist/` and `__pycache__/`
+outputs. On macOS it also removes setup-installed Kitty's cache and downloaded installer.
+Pre-existing fonts and terminals are preserved. Linux package removal may ask for your sudo
+password; a toolbox created by setup is removed, while a pre-existing toolbox is kept and only
+setup-installed packages are removed from it. The repository and source changes are preserved.
+Ownership tracking applies to installations made with this version of setup.
+
+### Single-file version
+
+The whole game (code, 100 questions, sounds) also fits in **one file**, `cka-megatrainer.pyz`
+(about 140 KB), a standard Python zip application:
+
+```bash
+make dist                      # builds dist/cka-megatrainer.pyz
+./dist/cka-megatrainer.pyz     # or: python3 dist/cka-megatrainer.pyz
+```
+
+Copy that file anywhere, to any Linux or macOS machine with Python 3.9+ (macOS ships Python 3.9
+with its command-line tools), and run it: nothing else is needed. All options work the same
+(`--exam`, `--silent`, `--theme soft`...). It plays in the current terminal: the retro font window
+of `make start-exam` needs the repository and handles its own setup.
 
 ## The 80s experience
 
