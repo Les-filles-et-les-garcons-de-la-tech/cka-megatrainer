@@ -2,3 +2,4 @@ AGENT.md
 __pycache__/*
 TODO.md
 tools/__pycache__/*
+dist/

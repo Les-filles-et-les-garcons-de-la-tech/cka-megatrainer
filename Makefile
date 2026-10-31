@@ -1,7 +1,7 @@
 PYTHON ?= python3
 APP    := cka_trainer.py
 
-.PHONY: help start-exam start-exam-silent start-exam-here install-retro list validate test screenshot readme-media
+.PHONY: help start-exam start-exam-silent start-exam-here install-retro list validate test screenshot readme-media dist
 
 # tmux lives in the 'cka-dev' toolbox on Fedora Silverblue
 TMUX_RUN := $(if $(shell command -v tmux),,toolbox run -c cka-dev)
@@ -35,3 +35,6 @@ screenshot: ## Text screenshot via tmux (SHOT="100 30 'Down Enter' 3")
 
 readme-media: ## Regenerate the README screenshots (docs/media/*.svg) via tmux
 	@$(TMUX_RUN) $(PYTHON) tools/readme_media.py
+
+dist: ## Build dist/cka-megatrainer.pyz: the whole game in one runnable file
+	@$(PYTHON) tools/build_pyz.py
