@@ -801,8 +801,8 @@ def rules_lines():
     b, n = A["bold"], A["normal"]
     return [
         ("Train like the exam: read the task, choose the right command and TYPE it in full.", n),
-        ("CKA EXAM: 15-20 random questions in the exam's domain proportions. The domain", n),
-        ("entries let you practise all the questions of one domain.", n), ("", 0),
+        ("CKA EXAM: 15-20 random questions in the exam's domain proportions. A domain line", n),
+        ("plays a short round: its share of a 20-question exam (e.g. STORAGE 2/20 = 2).", n), ("", 0),
         ("Typing another option = choosing it. Typos count as wrong, like in a real shell.", n),
         ("A leading 'k ' is accepted as 'kubectl '. Copy/paste is blocked.", n), ("", 0),
         ("Countdown", b),
@@ -837,6 +837,13 @@ def pick_exam(questions, domains, rnd=random, n=None):
         picked += rnd.sample(pool, min(k, len(pool)))
     rnd.shuffle(picked)
     return picked
+
+
+def pick_domain_round(questions, domains, domain, rnd=random, n=None):
+    """A short round on one domain: its share of a 20-question exam (storage: 2), random."""
+    pool = [q for q in questions if q["domain"] == domain]
+    n = n or exam_plan(domains, EXAM_MAX)[domain]
+    return rnd.sample(pool, min(n, len(pool)))
 
 
 def menu(stdscr, domains, questions, sound):
@@ -928,9 +935,9 @@ def session(stdscr, domains, questions, args, sound):
             return []
     if choice == "exam":
         questions = pick_exam(questions, domains, n=args.count)
-    else:
-        if choice:
-            questions = [q for q in questions if q["domain"] == choice]
+    elif choice:  # a domain line of the menu: its share of a 20-question exam, as labelled
+        questions = pick_domain_round(questions, domains, choice, n=args.count)
+    else:  # ALL QUESTIONS, --domain (all its questions) or --id
         if args.shuffle:
             random.shuffle(questions)
         if args.count:

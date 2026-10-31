@@ -134,6 +134,16 @@ class Exam(unittest.TestCase):
         sizes = {len(t.pick_exam(self.POOL, DOMAINS, random.Random(seed))) for seed in range(60)}
         self.assertEqual(sizes, set(range(t.EXAM_MIN, t.EXAM_MAX + 1)))
 
+    def test_domain_round_is_its_share_of_20(self):
+        import random
+        share = t.exam_plan(DOMAINS, t.EXAM_MAX)
+        for d in DOMAINS:  # what the menu line shows ("2/20") is what gets played
+            rnd = t.pick_domain_round(self.POOL, DOMAINS, d, random.Random(3))
+            self.assertEqual(len(rnd), share[d], d)
+            self.assertEqual({q["domain"] for q in rnd}, {d})
+            self.assertEqual(len({q["id"] for q in rnd}), len(rnd))
+        self.assertEqual(len(t.pick_domain_round(self.POOL, DOMAINS, "storage", n=4)), 4)
+
     def test_exam_questions_are_distinct_and_in_proportion(self):
         import random
         exam = t.pick_exam(self.POOL, DOMAINS, random.Random(1), n=20)
