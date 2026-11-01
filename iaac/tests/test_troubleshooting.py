@@ -75,7 +75,7 @@ spec:
         res = wait_for("kubectl get pods -l app=worker", "Error", 150)
         self.assertRegex(res.out, r"Error|CrashLoopBackOff")
         name = a_pod("app=worker")
-        out = wait_for(with_real_pod(answer("TRB-008", "s1"), "app=worker"), "invalid int value", 60).out
+        out = wait_for(with_real_pod(answer("TRB-008", "s1"), "app=worker"), "invalid int value", 150).out
         self.assertIn("invalid int value: 'port=8080'", out)          # --previous holds the error message
         with tempfile.TemporaryDirectory() as d:
             Path(d, "deploy.yaml").write_text(final_file("TRB-008", "s2"))

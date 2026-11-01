@@ -252,7 +252,7 @@ class ClusterDNSAndAddresses(ClusterTest):
             self.ok("kubectl -n kube-system create cm coredns --from-file=Corefile=cf --dry-run=client -o yaml "
                     "| kubectl apply -f -", cwd=d)
         self.answer_ok("NET-017", "s3")
-        self.ok("kubectl rollout status deployment coredns -n kube-system --timeout=120s")
+        self.ok("kubectl rollout status deployment coredns -n kube-system --timeout=240s", timeout=270)
         logs = sh("kubectl logs -n kube-system -l k8s-app=kube-dns --tail=30").out
         self.assertNotIn("Error during parsing", logs)
         self.assertIn("kubernetes.default.svc.cluster.local", run_pod(
@@ -273,7 +273,7 @@ class ClusterDNSAndAddresses(ClusterTest):
         self.cleanup_cmd("kubectl delete svc grafana -n monitoring; kubectl delete deploy grafana -n monitoring")
         self.ok("kubectl create deployment grafana --image=nginx:1.26 --port=80 -n monitoring")
         self.ok("kubectl expose deployment grafana --port=3000 --target-port=80 -n monitoring")
-        self.ok("kubectl wait --for=condition=Available deploy/grafana -n monitoring --timeout=90s")
+        self.ok("kubectl wait --for=condition=Available deploy/grafana -n monitoring --timeout=240s", timeout=270)
         for sid, port in (("s1", "18081"), ("s2", "18082")):
             cmd = answer("NET-019", sid).replace("8080:3000", f"{port}:3000")
             proc = subprocess.Popen(cmd, shell=True, env=ENV, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

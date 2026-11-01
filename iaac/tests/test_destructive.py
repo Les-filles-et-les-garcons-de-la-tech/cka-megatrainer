@@ -72,7 +72,8 @@ class StaticPodBreakFix(ClusterTest):
         res = wait_for(f"kubectl get pods -n kube-system kube-scheduler-{CONTROL_PLANE}", "Error", 150)
         self.assertRegex(res.out, r"Error|CrashLoopBackOff")
         self.ok("kubectl create deployment sched-test --image=nginx:1.26")
-        time.sleep(15)
+        wait_for("kubectl get pods -l app=sched-test -o name", "pod/", 60)
+        time.sleep(10)
         pod = sh("kubectl get pods -l app=sched-test -o jsonpath='{.items[0].metadata.name}'").out.strip("'")
         self.assertIn("Pending", self.ok(f"kubectl get pod {pod}").out)
         desc = self.ok(f"kubectl describe pod {pod}").out
