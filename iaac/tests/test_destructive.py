@@ -92,10 +92,11 @@ class StaticPodBreakFix(ClusterTest):
         self.assertRegex(res.out, r"Error|CrashLoopBackOff")                       # selected by component=<name>
         self.ok("kubectl create deployment cm-test --image=nginx:1.26")
         time.sleep(10)
-        self.assertEqual(self.ok("kubectl get rs -l app=cm-test --no-headers").out, "")  # nobody makes the ReplicaSet
+        self.assertNotIn("cm-test-", self.ok("kubectl get rs -l app=cm-test --no-headers").out)  # nobody makes the ReplicaSet
         log = self.ok(answer("TRB-020", "s2").replace("kube-controller-manager-controlplane",
                                                        f"kube-controller-manager-{CONTROL_PLANE}"))
-        self.assertIn("client-ca-file", log.out)
+        self.assertIn("unable to load client CA provider", log.out)              # names the file it cannot open
+        self.assertIn("/etc/kubernetes/pki/ca.crt.missing", log.out)
         self.assertIn("--client-ca-file=/etc/kubernetes/pki/ca.crt", final_file("TRB-020", "s3"))
         self.restore_manifest("kube-controller-manager")
         res = wait_for("kubectl get rs -l app=cm-test", "cm-test", 150)
@@ -105,9 +106,18 @@ class StaticPodBreakFix(ClusterTest):
         self.break_manifest("kube-apiserver", "--etcd-servers=https://127.0.0.1:2379",
                             "--etcd-servers=https://127.0.0.1:2399")
         self.assertTrue(wait_api(False, 240))
-        cid = self.container_id("kube-apiserver")
-        logs = node(answer("TRB-021", "s1").replace("sudo ", "").replace("8c1e2f4a9b3d", cid[:12]))
+        logs = None
+        for _ in range(40):                                                        # the newest container may have just started
+            for cid in node("crictl ps -a --name kube-apiserver -q").out.split():
+                logs = node(answer("TRB-021", "s1").replace("sudo ", "").replace("8c1e2f4a9b3d", cid[:12]))
+                if "2399" in logs.out:
+                    break
+            else:
+                time.sleep(3)
+                continue
+            break
         self.assertIn("2399", logs.out)                                            # the log names the bad endpoint
+        self.assertIn("connection refused", logs.out)
         listen = node(answer("TRB-021", "s2").replace("sudo ", "")).out
         self.assertIn("https://127.0.0.1:2379", listen)                            # what etcd really listens on
         self.assertIn("--etcd-servers=https://127.0.0.1:2379", final_file("TRB-021", "s3"))
@@ -160,8 +170,17 @@ class KubeletAndProxy(ClusterTest):
         self.answer_ok("TRB-028", "s4")                                              # restart: pods read the bad config
         res = wait_for(answer("TRB-028", "s1"), "Error", 150)
         self.assertRegex(res.out, r"Error|CrashLoopBackOff")
-        pod = sh("kubectl get pods -n kube-system -l k8s-app=kube-proxy -o jsonpath='{.items[0].metadata.name}'").out.strip("'")
-        log = wait_for(re.sub(r"kube-proxy-[a-z0-9]+", pod, answer("TRB-028", "s2")) + " --previous", "iptabels", 90)
+        log = None
+        for _ in range(45):
+            names = sh("kubectl get pods -n kube-system -l k8s-app=kube-proxy -o name").out.split()
+            for name in names:
+                log = sh(re.sub(r"kube-proxy-[a-z0-9]+", name.split("/")[1], answer("TRB-028", "s2")))
+                if "iptabels" in log.out:
+                    break
+            else:
+                time.sleep(4)
+                continue
+            break
         self.assertIn("iptabels", log.out)
         self.assertIn('mode: "iptables"', final_file("TRB-028", "s3"))
         restore()
