@@ -1,7 +1,7 @@
 PYTHON ?= python3
 APP    := cka_trainer.py
 
-.PHONY: help first-start start-exam start-learn start-learn-here start-exam-silent start-exam-here install-retro uninstall list validate test check-links screenshot readme-media dist
+.PHONY: help first-start start-exam start-learn start-learn-here start-exam-silent start-exam-here install-retro uninstall list validate test check-links iaac-up iaac-down iaac-status iaac-test iaac-test-destructive iaac-coverage screenshot readme-media dist
 
 # tmux lives in the 'cka-dev' toolbox on Fedora Silverblue
 TMUX_RUN := $(if $(shell command -v tmux),,toolbox run -c cka-dev)
@@ -39,8 +39,27 @@ list: ## List all questions
 validate: ## Check questions.json
 	@$(PYTHON) $(APP) --validate
 
-test: validate ## Validate the database and run the unit tests
+test: validate ## Validate the database and run the unit tests (plus the iaac coverage check)
 	@$(PYTHON) -m unittest -v
+	@$(PYTHON) -m unittest discover -s iaac/tests -p 'test_coverage.py'
+
+iaac-up: ## Create the v1.37 test cluster (kind) used to check the answers (see iaac/README.md)
+	@iaac/cluster.sh up
+
+iaac-down: ## Delete the test cluster
+	@iaac/cluster.sh down
+
+iaac-status: ## Show the test cluster's nodes and version
+	@iaac/cluster.sh status
+
+iaac-test: ## Run every question's answers against the test cluster (ARGS=test_storage for one file)
+	@iaac/run-tests.sh $(ARGS)
+
+iaac-test-destructive: ## Also run the tests that break and repair control-plane components
+	@DESTRUCTIVE=1 iaac/run-tests.sh $(ARGS)
+
+iaac-coverage: ## Which tests exercise which question (no cluster needed)
+	@cd iaac/tests && $(PYTHON) test_coverage.py --table
 
 check-links: ## Check that every documentation link of questions.json still works (needs network)
 	@$(PYTHON) tools/check_links.py

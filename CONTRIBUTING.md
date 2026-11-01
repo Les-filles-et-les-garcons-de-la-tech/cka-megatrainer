@@ -20,6 +20,7 @@ The game has only been tested on Fedora Silverblue (see the README). Please open
 ```bash
 make test           # validates questions.json + runs the unit tests
 make check-links    # only when you touched documentation links (needs network)
+make iaac-up iaac-test ARGS=test_storage   # your question's answers on a real cluster (see iaac/README.md)
 ```
 
 - **Python standard library only**: no pip dependencies.
@@ -124,7 +125,10 @@ Rules (`./cka_trainer.py --validate` enforces most of them):
   which also puts `questions.json` in house style; (6) run `make test`, `make check-links`,
   then play it with `./cka_trainer.py --learn --id STO-011` to see that the green check marks
   the right option and the links open the right pages; (7) because the library keeps the exam
-  proportions, send questions in proportional batches (see above).
+  proportions, send questions in proportional batches (see above); (8) add the question's **cluster test**
+  in `iaac/tests/` (it runs your answers against a real Kubernetes v1.37, see `iaac/README.md`), or, if you
+  cannot run a cluster, list the id in `iaac/PENDING.txt` with the reason. `make test` fails if a question
+  has neither.
 - To add several questions, write them in a separate file `{"questions": [...]}` and check it
   with `python3 tools/validate_fragment.py FILE.json PREFIX FIRST LAST` (stricter than
   `--validate`), then merge it with `python3 tools/merge_questions.py questions.json questions.json FILE.json`.

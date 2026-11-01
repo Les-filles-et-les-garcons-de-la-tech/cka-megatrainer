@@ -928,7 +928,7 @@
       "topic": "Container runtime (containerd)",
       "difficulty": 2,
       "title": "containerd with the systemd cgroup driver",
-      "scenario": "On node 'node03' (containerd 2.x, config version 3), the kubelet uses cgroupDriver: systemd (the kubeadm default) but containerd still uses cgroupfs, so Pods keep restarting. You are root on node03.",
+      "scenario": "On node 'node03' (containerd 2.x, config version 4), the kubelet uses cgroupDriver: systemd (the kubeadm default) but containerd still uses cgroupfs, so Pods keep restarting. You are root on node03.",
       "tip": "The kubelet and the container runtime MUST use the same cgroup driver. On systemd hosts (cgroup v2), use systemd for both.",
       "docs": [
         {"title": "Container Runtimes", "url": "https://kubernetes.io/docs/setup/production-environment/container-runtimes/"}
@@ -960,7 +960,7 @@
           "filename": "/etc/containerd/config.toml",
           "prompt": "Step 2 - Switch runc to the systemd cgroup driver: type the right line over 'SystemdCgroup = false'. Ctrl+D to submit.",
           "prefill": [
-            "version = 3",
+            "version = 4",
             "",
             "[plugins]",
             "  [plugins.'io.containerd.cri.v1.runtime']",
@@ -3507,7 +3507,7 @@
       "topic": "Init containers",
       "difficulty": 2,
       "title": "Wait for the database before starting",
-      "scenario": "Pod 'web' (namespace 'shop') must not start nginx before the Service 'db' resolves in DNS. Add an init container 'wait-db' (busybox:1.36) that loops until 'nslookup db' succeeds.",
+      "scenario": "Pod 'web' (namespace 'shop') must not start nginx before the Service 'db' resolves in DNS. Add an init container 'wait-db' (busybox:1.36) that loops until 'nslookup db.shop.svc.cluster.local' succeeds.",
       "tip": "Init containers run one after the other, each to completion, BEFORE the app containers. With restartPolicy: Always an init container becomes a sidecar and does not block anything.",
       "docs": [
         {"title": "Init Containers", "url": "https://kubernetes.io/docs/concepts/workloads/pods/init-containers/"}
@@ -3536,7 +3536,10 @@
           "checks": [
             {"regex": "^  initContainers:\\s*$", "msg": "'initContainers:' belongs to the Pod spec (2 spaces, like 'containers:')."},
             {"regex": "^  initContainers:\\s*\\n  - name:\\s*\"?wait-db\"?\\s*$", "msg": "initContainers is a LIST: its first item is '- name: wait-db'."},
-            {"regex": "^    command:\\s*\\[\\s*\"sh\",\\s*\"-c\",\\s*\"until nslookup db; do sleep 2; done\"\\s*\\]\\s*$", "msg": "The loop is shell syntax: run it with [\"sh\", \"-c\", \"...\"]."}
+            {
+              "regex": "^    command:\\s*\\[\\s*\"sh\",\\s*\"-c\",\\s*\"until nslookup db\\.shop\\.svc\\.cluster\\.local; do sleep 2; done\"\\s*\\]\\s*$",
+              "msg": "The loop is shell syntax: run it with [\"sh\", \"-c\", \"...\"]."
+            }
           ],
           "forbid": [
             {"regex": "restartPolicy:\\s*Always", "msg": "restartPolicy: Always turns it into a sidecar that does not block 'web'."},
@@ -3548,26 +3551,26 @@
                 "  initContainers:",
                 "  - name: wait-db",
                 "    image: busybox:1.36",
-                "    command: [\"sh\", \"-c\", \"until nslookup db; do sleep 2; done\"]"]},
+                "    command: [\"sh\", \"-c\", \"until nslookup db.shop.svc.cluster.local; do sleep 2; done\"]"]},
             {"why": "Without 'initContainers:' this item is appended to 'containers': it runs IN PARALLEL with nginx and is restarted forever once it exits.", "snippet": [
                 "  - name: wait-db",
                 "    image: busybox:1.36",
-                "    command: [\"sh\", \"-c\", \"until nslookup db; do sleep 2; done\"]"]},
+                "    command: [\"sh\", \"-c\", \"until nslookup db.shop.svc.cluster.local; do sleep 2; done\"]"]},
             {"why": "restartPolicy: Always makes it a native SIDECAR: 'web' starts as soon as it has started, without waiting for the loop to end.", "snippet": [
                 "  initContainers:",
                 "  - name: wait-db",
                 "    image: busybox:1.36",
                 "    restartPolicy: Always",
-                "    command: [\"sh\", \"-c\", \"until nslookup db; do sleep 2; done\"]"]},
-            {"why": "Without a shell, the whole string is taken as the executable name: 'exec: \"until nslookup db; ...\": executable file not found'.", "snippet": [
+                "    command: [\"sh\", \"-c\", \"until nslookup db.shop.svc.cluster.local; do sleep 2; done\"]"]},
+            {"why": "Without a shell, the whole string is taken as the executable name: 'exec: \"until nslookup db.shop.svc.cluster.local; ...\": executable file not found'.", "snippet": [
                 "  initContainers:",
                 "  - name: wait-db",
                 "    image: busybox:1.36",
-                "    command: [\"until nslookup db; do sleep 2; done\"]"]}
+                "    command: [\"until nslookup db.shop.svc.cluster.local; do sleep 2; done\"]"]}
           ],
           "recap": "Add initContainers: - name: wait-db / image / command [\"sh\", \"-c\", \"until ...; done\"].",
           "next": "s2",
-          "explain": "Init containers run to completion, in order, before the main containers start, so nginx cannot begin until nslookup succeeds. 'db' resolves thanks to the search domains in /etc/resolv.conf. If an init container fails, the kubelet retries it."
+          "explain": "Init containers run to completion, in order, before the main containers, so nginx cannot start until the lookup succeeds. Use the full name: busybox's nslookup tries every search domain for a bare 'db' and exits 1 if one attempt fails, so the loop would never end. A failed init container is retried."
         },
         "s2": {
           "type": "command",
@@ -4216,7 +4219,7 @@
             },
             {"cmd": "kubectl annotate sc gp2 storageclass.kubernetes.io/is-default-class=false", "why": "The annotation already has a value: without --overwrite kubectl refuses to change it."}
           ],
-          "explain": "Remove the old default first: with two defaults the choice for new claims is ambiguous. The default is just an annotation, and annotation values are strings, so write \"false\" in quotes. Any value other than \"true\" removes the default status."
+          "explain": "Remove the old default first: with two defaults the NEWEST class silently wins, which is rarely what you meant. The default is just an annotation, and annotation values are strings, so write \"false\" in quotes. Any value other than \"true\" removes it."
         },
         "s3": {
           "type": "command",
@@ -4246,7 +4249,7 @@
               "why": "annotations live under metadata: at the top level it is an unknown field and the patch is rejected."
             }
           ],
-          "explain": "The DefaultStorageClass admission plugin fills in storageClassName for new claims that omit it, using the class marked default. Existing claims are not changed."
+          "explain": "The DefaultStorageClass admission plugin gives the default class to new claims that omit storageClassName, and since v1.28 also to existing claims still without one: switching the default can change where old Pending claims land."
         }
       }
     },
@@ -6938,17 +6941,17 @@
         "s1": {
           "type": "command",
           "time_limit": 90,
-          "prompt": "Step 1 - From a throw-away busybox:1.36 Pod named 'dnstest', resolve kubernetes.default. The Pod must vanish afterwards and its output must be shown.",
+          "prompt": "Step 1 - From a throw-away busybox:1.28 Pod named 'dnstest', resolve kubernetes.default. The Pod must vanish afterwards and its output must be shown.",
           "options": [
-            {"cmd": "kubectl run dnstest --rm -it --image=busybox:1.36 --restart=Never -- nslookup kubernetes.default", "correct": true, "next": "s2"},
-            {"cmd": "kubectl run dnstest --image=busybox:1.36 --restart=Never -- nslookup kubernetes.default", "why": "Without -it --rm you see no output and the Pod stays behind (Completed)."},
+            {"cmd": "kubectl run dnstest --rm -it --image=busybox:1.28 --restart=Never -- nslookup kubernetes.default", "correct": true, "next": "s2"},
+            {"cmd": "kubectl run dnstest --image=busybox:1.28 --restart=Never -- nslookup kubernetes.default", "why": "Without -it --rm you see no output and the Pod stays behind (Completed)."},
             {"cmd": "kubectl exec dnstest -- nslookup kubernetes.default", "why": "Assumes a Pod 'dnstest' already exists."},
             {
-              "cmd": "kubectl run dnstest --rm -it --image=busybox:1.36 --restart=Never -- ping kubernetes.default",
+              "cmd": "kubectl run dnstest --rm -it --image=busybox:1.28 --restart=Never -- ping kubernetes.default",
               "why": "ping tests ICMP, and Service IPs are virtual and do not answer it. nslookup/dig test DNS itself."
             }
           ],
-          "explain": "Test from where the problem is: a Pod inside the cluster. --rm -it --restart=Never is the standard throw-away debug Pod: it leaves nothing behind. 'bad address' means the lookup itself failed."
+          "explain": "Test from where the problem is: a Pod inside the cluster. --rm -it --restart=Never is the standard throw-away debug Pod. Use busybox:1.28: newer busybox says NXDOMAIN for 'kubernetes.default' even when DNS works. 'bad address' means the lookup failed."
         },
         "s2": {
           "type": "command",
@@ -7889,22 +7892,29 @@
         "s3": {
           "type": "command",
           "time_limit": 75,
-          "prompt": "Step 3 - Block until the Pods labelled app=orders are Ready (60 s timeout).",
+          "prompt": "Step 3 - Block until the Deployment 'orders' is Available again (60 s timeout).",
           "options": [
             {
-              "cmd": "kubectl wait --for=condition=Ready pod -l app=orders --timeout=60s",
+              "cmd": "kubectl wait --for=condition=Available deployment/orders --timeout=60s",
               "correct": true,
               "aliases": [
-                "kubectl wait pod -l app=orders --for=condition=Ready --timeout=60s",
-                "kubectl wait --for=condition=Ready pods -l app=orders --timeout=60s"
+                "kubectl wait deployment/orders --for=condition=Available --timeout=60s",
+                "kubectl wait --for=condition=Available deploy/orders --timeout=60s",
+                "kubectl wait --for=condition=available deployment/orders --timeout=60s"
               ],
               "next": null
             },
+            {
+              "cmd": "kubectl wait --for=condition=Ready pod -l app=orders --timeout=60s",
+              "why": "During a rollout the old Pods still match the label: the ones being replaced never become Ready, so this fails on them (exit 1) even though the fix worked."
+            },
             {"cmd": "kubectl wait --for=condition=Ready deployment/orders --timeout=60s", "why": "Deployments have no Ready condition (they have Available and Progressing): this just times out."},
-            {"cmd": "kubectl wait --for=condition=Running pod -l app=orders --timeout=60s", "why": "Running is a PHASE, not a condition (and the Pods were already Running): use condition=Ready."},
-            {"cmd": "kubectl wait --for=Ready pod -l app=orders --timeout=60s", "why": "--for needs a form like condition=NAME, delete or jsonpath=...; a bare 'Ready' is rejected."}
+            {
+              "cmd": "kubectl wait --for=Available deployment/orders --timeout=60s",
+              "why": "--for needs a form like condition=NAME, delete or jsonpath=...; a bare 'Available' is rejected: unrecognized condition."
+            }
           ],
-          "explain": "'wait' blocks until the condition is true or the timeout hits, which beats guessing a sleep. Once Ready, the Pods appear in the Service's EndpointSlice and receive traffic."
+          "explain": "A Deployment is Available once enough Pods are Ready, which is true only after the fix has rolled out. Waiting on 'pod -l' also counts the old Pods still terminating, which never become Ready and fail the command. Ready Pods join the EndpointSlice."
         }
       }
     },
@@ -8447,7 +8457,7 @@
             {"cmd": "kubectl describe nodes --sort-by=cpu", "why": "describe has no --sort-by flag and shows requests, not usage."},
             {"cmd": "kubectl top pods -A --sort-by=cpu --containers", "why": "Lists containers per Pod, not node totals."}
           ],
-          "explain": "The same tool works for nodes: CPU(cores), CPU%, MEMORY(bytes) and MEMORY% are relative to each node's allocatable, so you see which node is closest to its limit."
+          "explain": "The same tool works for nodes: CPU(cores), CPU(%), MEMORY(bytes) and MEMORY(%) are relative to each node's allocatable, so you see which node is closest to its limit."
         }
       }
     },

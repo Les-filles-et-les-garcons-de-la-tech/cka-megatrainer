@@ -119,6 +119,13 @@ troubleshooting-x4k2p   1/3     CrashLoopBackOff  2         6m40s
 Everything else is unchanged: same questions, countdown, scoring and exam draw. `--learn` also
 works with the other options (`--domain storage --learn`) and with the single-file version.
 
+### Answers checked on a real cluster
+
+Every answer in the database is run against a real **Kubernetes v1.37** (kind) by the tests in
+[`iaac/`](iaac/README.md), including the claims made in the explanations ("this is rejected", "this
+times out"). `make iaac-up iaac-test` reproduces it on your machine; it never touches your own
+kubeconfig or clusters. Contributors adding a question add its test there too.
+
 ## Controls
 
 | Key | Command step | Edit step |

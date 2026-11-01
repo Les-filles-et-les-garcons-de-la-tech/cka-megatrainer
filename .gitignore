@@ -1,5 +1,16 @@
 AGENT.md
-__pycache__/*
 TODO.md
-tools/__pycache__/*
 dist/
+
+# Python
+__pycache__/
+*.pyc
+.ruff_cache/
+
+# macOS
+.DS_Store
+
+# iaac test cluster (see iaac/README.md): its kubeconfig, downloaded kind/kubectl, Helm repos and cache
+iaac/.bin/
+iaac/.kubeconfig
+iaac/.helm/
