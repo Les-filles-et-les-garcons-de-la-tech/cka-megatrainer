@@ -6,7 +6,7 @@ import time
 import unittest
 from pathlib import Path
 
-from lib import WORKER, ClusterTest, answer, final_file, node, sh, wait_for
+from lib import PODMAN, WORKER, ClusterTest, answer, final_file, node, sh, wait_for
 
 
 def pods(selector, ns):
@@ -133,7 +133,7 @@ class Scheduling(ClusterTest):
     def test_wrk014_static_pod_on_a_node(self):
         manifest = ("apiVersion: v1\nkind: Pod\nmetadata: {name: static-web}\nspec:\n"
                     "  containers: [{name: web, image: nginx:1.26}]\n")
-        self.cleanup_cmd(f"podman exec {WORKER} rm -f /etc/kubernetes/manifests/static-web.yaml")
+        self.cleanup_cmd(f"{PODMAN} exec {WORKER} rm -f /etc/kubernetes/manifests/static-web.yaml")
         node("cat > /tmp/static-web.yaml", which=WORKER, stdin=manifest)
         self.assertIn("staticPodPath: /etc/kubernetes/manifests", node(answer("WRK-014", "s1"), which=WORKER).out)
         self.assertTrue(node(answer("WRK-014", "s2"), which=WORKER))

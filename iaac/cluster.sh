@@ -15,6 +15,9 @@ CLUSTER=${CLUSTER:-cka-test}
 # pinned one into iaac/.bin (checksum verified) instead of touching the kind installed on the system.
 KIND_VERSION=${KIND_VERSION:-v0.33.0}
 KIND=$PWD/.bin/kind-$KIND_VERSION
+sha256() {  # sha256sum on Linux (shasum is often missing there), shasum on macOS
+  if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
+}
 fetch_kind() {
   [ -x "$KIND" ] && return
   os=$(uname -s | tr '[:upper:]' '[:lower:]'); arch=$(uname -m)
@@ -22,7 +25,7 @@ fetch_kind() {
   url=https://kind.sigs.k8s.io/dl/$KIND_VERSION/kind-$os-$arch
   mkdir -p .bin && curl -fsSL -o "$KIND.tmp" "$url" || { echo "cannot download $url" >&2; exit 1; }
   want=$(curl -fsSL "$url.sha256sum" | cut -d' ' -f1)
-  got=$(shasum -a 256 "$KIND.tmp" | cut -d' ' -f1)
+  got=$(sha256 "$KIND.tmp")
   [ "$want" = "$got" ] || { echo "kind checksum mismatch" >&2; rm -f "$KIND.tmp"; exit 1; }
   chmod +x "$KIND.tmp" && mv "$KIND.tmp" "$KIND"
 }
@@ -36,7 +39,7 @@ fetch_kubectl() {
   url=https://dl.k8s.io/release/$K8S_VERSION/bin/$os/$arch/kubectl
   mkdir -p .bin && curl -fsSL -o "$KUBECTL.tmp" "$url" || { echo "cannot download $url" >&2; exit 1; }
   want=$(curl -fsSL "$url.sha256")
-  got=$(shasum -a 256 "$KUBECTL.tmp" | cut -d' ' -f1)
+  got=$(sha256 "$KUBECTL.tmp")
   [ "$want" = "$got" ] || { echo "kubectl checksum mismatch" >&2; rm -f "$KUBECTL.tmp"; exit 1; }
   chmod +x "$KUBECTL.tmp" && mv "$KUBECTL.tmp" "$KUBECTL"
 }

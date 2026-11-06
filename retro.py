@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 import wave
@@ -312,7 +313,7 @@ def _menu_line(label, right, selected):
     return ("► " if selected else "  ") + body + (" ◄" if selected else "  ")
 
 
-def draw_title(win, items, sel, t, sound_status, flash=None):
+def draw_title(win, items, sel, t, status, flash=None, cycling=()):
     h, w = win.getmaxyx()
     win.erase()
     if h < 20 or w < 60:
@@ -342,20 +343,31 @@ def draw_title(win, items, sel, t, sound_status, flash=None):
             attr = (C["yellow"] if int(t * 4) % 2 else C["white"]) | curses.A_BOLD
         else:
             attr = C["white"]
-        put(win, y + i, x, _menu_line(label, right, i == sel), attr)
+        value = items[i][0]
+        shown = f"< {right} >" if i == sel and value in cycling else right  # changed in place
+        put(win, y + i, x, _menu_line(label, shown, i == sel), attr)
 
-    y += len(items) + 1
+    y += len(items)
+    put(win, y, max(0, (w - len(status)) // 2), status[:w], C["cyan"] | curses.A_DIM)  # current OPTIONS
+    y += 1
     if int(t * 2) % 2 == 0 or flash is not None:
         prompt = "PRESS ENTER TO START"
         put(win, y, (w - len(prompt)) // 2, prompt, C["magenta"] | curses.A_BOLD)
-    footer = f"↑↓ SELECT   ENTER START   M {sound_status}   Q QUIT"
-    put(win, h - 1, max(0, (w - len(footer)) // 2), footer, C["white"] | curses.A_DIM)
-    put(win, h - 1, max(0, w - 10), "CREDIT 01", C["green"])
+    # words, not ↑↓: VT323 has no arrow glyphs, the borrowed ones are clipped in its narrow cells
+    footer = ("UP DOWN SELECT  LEFT RIGHT CHANGE  Q QUIT" if items[sel][0] in cycling
+              else "UP DOWN SELECT  ENTER START  Q QUIT")
+    fx = max(0, (w - len(footer)) // 2)
+    put(win, h - 1, fx, footer, C["white"] | curses.A_DIM)
+    if fx + len(footer) <= w - 13:  # decoration only: dropped when it would touch the keys
+        put(win, h - 1, max(0, w - 10), "CREDIT 01", C["green"])
     win.refresh()
 
 
-def title_screen(win, items, sel, sound, read_key):
-    """Animated menu. items: [(value, label, right)]. Returns the chosen index or None."""
+def title_screen(win, items, sel, sound, read_key, status="", cycle=None):
+    """Animated menu. items: [(value, label, right)]; status: the current OPTIONS, one line.
+    cycle: {value: fn(step) -> new items} for lines changed in place (LEFT/RIGHT/ENTER), like LEVEL.
+    Returns the chosen index or None."""
+    cycle = cycle or {}
     init_colors()
     curses.curs_set(0)
     sound.start_music()
@@ -364,7 +376,7 @@ def title_screen(win, items, sel, sound, read_key):
         win.timeout(FRAME_MS)
         sound.tick()
         t = time.monotonic() - t0
-        draw_title(win, items, sel, t, sound.status)
+        draw_title(win, items, sel, t, status, cycling=cycle)
         try:
             key = read_key(win)
         except curses.error:
@@ -375,17 +387,101 @@ def title_screen(win, items, sel, sound, read_key):
         elif key in (curses.KEY_DOWN, "j"):
             sel = (sel + 1) % len(items)
             sound.play("move")
+        elif items[sel][0] in cycle and key in (curses.KEY_LEFT, curses.KEY_RIGHT, "h", "l",
+                                                "\n", "\r", " ", curses.KEY_ENTER):
+            items = cycle[items[sel][0]](-1 if key in (curses.KEY_LEFT, "h") else 1)
+            sound.play("move")
         elif key in ("\n", "\r", " ", curses.KEY_ENTER):
             sound.play("select")
             for i in range(10):  # the arcade "you picked it" flash
-                draw_title(win, items, sel, time.monotonic() - t0, sound.status, flash=i)
+                draw_title(win, items, sel, time.monotonic() - t0, status, flash=i, cycling=cycle)
                 curses.napms(60)
             curses.flushinp()
             return sel
-        elif key in ("m", "M"):
-            sound.toggle_music()
         elif key in ("q", "Q", "\x1b"):
             return None
+
+
+def _option_line(label, value, selected):
+    inner = MENU_W - 4
+    shown = f"< {value} >" if selected else f"  {value}  "
+    dots = "." * max(1, inner - len(label) - len(shown) - 2)
+    return ("► " if selected else "  ") + f"{label} {dots} {shown}" + (" ◄" if selected else "  ")
+
+
+def draw_options(win, rows, sel, t):
+    h, w = win.getmaxyx()
+    win.erase()
+    draw_stars(win, t)
+    word = big("OPTIONS") if w >= width(big("OPTIONS")) + 4 and h >= 7 + len(rows) + 12 else half("OPTIONS")
+    x = (w - width(word)) // 2
+    for r in range(len(word)):  # no stars inside the letters
+        put(win, 1 + r, x - 1, " " * (width(word) + 2))
+    sprite(win, 1, x, word, lambda r, c: C[RAINBOW[(c // 4 + int(t * 6)) % len(RAINBOW)]] | curses.A_BOLD)
+    y = 1 + len(word) + 2
+    mx = (w - MENU_W) // 2
+    for i, row in enumerate(rows + [None]):
+        selected = i == sel
+        attr = ((C["yellow"] if int(t * 4) % 2 else C["white"]) | curses.A_BOLD) if selected else C["white"]
+        if row is None:
+            line = ("► " if selected else "  ") + "BACK".center(MENU_W - 4) + (" ◄" if selected else "  ")
+        else:
+            line = _option_line(row["label"], row["values"][row["index"]], selected)
+        put(win, y + i, mx, line, attr)
+    y += len(rows) + 2
+    if sel < len(rows):  # what the highlighted choice does
+        row = rows[sel]
+        hint = row["hints"].get(row["values"][row["index"]], "")
+        for k, ln in enumerate(textwrap.wrap(hint, min(w - 4, 70))[:3]):
+            put(win, y + k, (w - len(ln)) // 2, ln, C["cyan"])
+    footer = "UP DOWN SELECT  LEFT RIGHT CHANGE  Q BACK"
+    put(win, h - 1, max(0, (w - len(footer)) // 2), footer, C["white"] | curses.A_DIM)
+    win.refresh()
+
+
+def options_screen(win, rows, sound, read_key):
+    """rows: [{"label", "values", "index", "hints": {value: text}, "on_change": fn(value)}].
+    Changes apply at once (on_change); BACK, Q or Esc returns to the title screen."""
+    init_colors()
+    curses.curs_set(0)
+    sel, t0 = 0, time.monotonic()
+    while True:
+        win.timeout(FRAME_MS)
+        sound.tick()
+        if too_small_for_menu(win):
+            curses.napms(FRAME_MS)
+            continue
+        draw_options(win, rows, sel, time.monotonic() - t0)
+        try:
+            key = read_key(win)
+        except curses.error:
+            continue
+        back = sel == len(rows)
+        if key in (curses.KEY_UP, "k"):
+            sel = (sel - 1) % (len(rows) + 1)
+            sound.play("move")
+        elif key in (curses.KEY_DOWN, "j"):
+            sel = (sel + 1) % (len(rows) + 1)
+            sound.play("move")
+        elif key in ("q", "Q", "\x1b") or (back and key in ("\n", "\r", " ", curses.KEY_ENTER)):
+            curses.flushinp()
+            return
+        elif not back and key in (curses.KEY_RIGHT, curses.KEY_LEFT, "l", "h", "\n", "\r", " ", curses.KEY_ENTER):
+            row = rows[sel]
+            step = -1 if key in (curses.KEY_LEFT, "h") else 1
+            row["index"] = (row["index"] + step) % len(row["values"])
+            row["on_change"](row["values"][row["index"]])
+            sound.play("select" if len(row["values"]) > 1 else "move")
+
+
+def too_small_for_menu(win):
+    h, w = win.getmaxyx()
+    if h >= 20 and w >= 60:
+        return False
+    win.erase()
+    put(win, 0, 0, "Enlarge the terminal (60x20 minimum).", C["red"])
+    win.refresh()
+    return True
 
 
 def get_ready(win, stage, sound):
@@ -479,10 +575,10 @@ class Fireworks:
         self.sparks.append({"x": x, "y": y, "vx": 2 * speed * math.cos(a), "vy": speed * math.sin(a),
                             "born": t, "life": life, "color": color, "trail": [], **extra})
 
-    def explode(self, s, t, sound):
+    def explode(self, s, t, sound, w=None):
         rnd, x, y, col = self.rnd, s["x"], s["y"], s["color"]
         if t - self.last_boom > 0.15:  # several bursts at once: one boom is enough
-            sound.play("boom")
+            sound.play("boom", pan=s["x"] / w if w else None)  # stereo: heard where it bursts
             self.last_boom = t
         self.rings.append({"x": x, "y": y, "born": t})
         turn = rnd.uniform(0, 2 * math.pi)
@@ -534,7 +630,7 @@ class Fireworks:
                             rnd.choice(("orange", "yellow")), t, rnd.uniform(0.5, 0.9), tail=True)
             if s["y"] <= s["burst"]:
                 self.shells.remove(s)
-                self.explode(s, t, sound)
+                self.explode(s, t, sound, w)
         for p in self.sparks[:]:
             p["trail"] = ([(p["x"], p["y"])] + p["trail"])[:p.get("trail_len", 4)]
             drag = 1 - (2.2 if p.get("willow") else 1.3) * dt
@@ -702,6 +798,14 @@ def finale(win, info, sound):
                       lambda r, c: C[pal[(c // 4 + int(t * 6)) % len(pal)]] | curses.A_BOLD,
                       letter_w=12 if is_big else 6)
             y = 2 + len(rows) + 2
+            tags = []
+            if info.get("learn"):  # a learn-mode result must never pass for a real one
+                tags.append("LEARN MODE · the answers were shown")
+            if info.get("unreached"):
+                tags.append(f"TIME UP · {info['unreached']} question(s) not reached")
+            if tags:
+                tag = " " + "   ·   ".join(tags) + " "
+                put(win, y - 1, max(0, (w - len(tag)) // 2), tag[:w], C["green"] | curses.A_BOLD)
 
             line = (f"SCORE {info['score']}   ·   EXAM {info['percent']}%  (PASS ≥ {info['pass_percent']}%)"
                     f"   ·   {info['solved']}/{info['total']} QUESTIONS SOLVED")
@@ -898,22 +1002,160 @@ SFX = {
 }
 
 
-def write_wav(path, samples):
-    data = array.array("h", (int(max(-1.0, min(1.0, s)) * 0.8 * 32767) for s in samples))
+# --------------------------------------------------------------------------
+# Stereo: the same original tunes, arranged wide (OPTIONS > SOUND STEREO)
+# --------------------------------------------------------------------------
+
+STEREO_VERSION = 1
+SCALE = {0, 2, 4, 5, 7, 9, 11}  # C major / A minor: every tune of the game lives there
+CHORDS = {"C": (0, 4, 7), "D": (0, 3, 7), "E": (0, 4, 7), "F": (0, 4, 7), "G": (0, 4, 7), "A": (0, 3, 7)}
+
+
+def third_below(m):
+    """The diatonic third under a melody note (G# belongs to the E chord of A minor: E below)."""
+    if m % 12 == 8:
+        return m - 4
+    return m - 3 if (m - 3) % 12 in SCALE else m - 4
+
+
+def _pan(left, right, mono, pan, offset=0):
+    """Mix a mono buffer in, equal-power panned (0 = left, 1 = right), optionally delayed."""
+    gl, gr = math.cos(pan * math.pi / 2), math.sin(pan * math.pi / 2)
+    for i in range(min(len(mono), len(left) - offset)):
+        left[i + offset] += gl * mono[i]
+        right[i + offset] += gr * mono[i]
+
+
+def _normalize(left, right, peak=0.98):
+    top = max(max(map(abs, left), default=0), max(map(abs, right), default=0))
+    if top > peak:
+        k = peak / top
+        left[:] = [x * k for x in left]
+        right[:] = [x * k for x in right]
+    return left, right
+
+
+def render_song_stereo(lead, roots, bpm, loops=2, drums=True):
+    """Lead + detuned chorus, a diatonic harmony, arpeggios bouncing between the speakers,
+    a ping-pong echo, centred bass and drums spread across the stereo field."""
+    s16 = 60 / bpm / 4
+    n = int(len(roots) * 16 * s16 * SR)
+    left, right = [0.0] * n, [0.0] * n
+
+    def voice(seq, wave_fn, vol, decay=None):
+        buf = [0.0] * n
+        _voice(buf, seq, wave_fn, vol, s16, decay)
+        return buf
+
+    melody = parse(lead)
+    lead_buf = voice(melody, square(0.25), 0.15, 0.08)
+    _pan(left, right, lead_buf, 0.62)
+    _pan(left, right, voice([(m + 0.07 if m is not None else None, u) for m, u in melody],  # +7 cents
+                            square(0.5), 0.05, 0.08), 0.32)
+    _pan(left, right, voice([(third_below(m) if m is not None else None, u) for m, u in melody],
+                            square(0.125), 0.07, 0.1), 0.2)
+    echo = int(3 * s16 * SR)  # ping-pong: a dotted eighth later on the left, twice that on the right
+    _pan(left, right, [0.32 * x for x in lead_buf], 0.05, echo)
+    _pan(left, right, [0.16 * x for x in lead_buf], 0.95, 2 * echo)
+
+    arp_l, arp_r = [], []  # the bar's chord in sixteenths, alternating speakers
+    for root in roots:
+        base = midi(root[:-1] + "4")
+        tones = [base + c for c in CHORDS[root[:-1]]] + [base + 12]
+        for k, i in enumerate([0, 1, 2, 3, 2, 1, 2, 3] * 2):
+            (arp_l if k % 2 == 0 else arp_r).append((tones[i], 1))
+            (arp_r if k % 2 == 0 else arp_l).append((None, 1))
+    vol = 0.04 if drums else 0.03
+    _pan(left, right, voice(arp_l, square(0.125), vol, 0.03), 0.12)
+    _pan(left, right, voice(arp_r, square(0.125), vol, 0.03), 0.88)
+    _pan(left, right, voice([(midi(r) + 12 * (i % 2), 2) for r in roots for i in range(8)], triangle, 0.34), 0.5)
+
+    if drums:
+        rnd = random.Random(1986)
+        kick, snare, hat_l, hat_r = ([0.0] * n for _ in range(4))
+        for bar in range(len(roots)):
+            for s in range(16):
+                pos = int((bar * 16 + s) * s16 * SR)
+                if s in (0, 8, 10):
+                    _drum(kick, pos, "kick", rnd)
+                if s in (4, 12):
+                    _drum(snare, pos, "snare", rnd)
+                if s % 2 == 0:
+                    _drum(hat_l if s % 4 == 0 else hat_r, pos, "hat", rnd)
+        for buf, pan in ((kick, 0.5), (snare, 0.55), (hat_l, 0.25), (hat_r, 0.75)):
+            _pan(left, right, buf, pan)
+    left, right = _normalize(left, right)
+    return left * loops, right * loops
+
+
+def render_sfx_stereo(notes, duty=0.5, vol=0.3, harmony=True, echo=0.11):
+    """A jingle with its harmony on the left and an echo crossing the speakers."""
+    seq = [(midi(n), d) for n, d in notes]
+    total = int((sum(d for _, d in notes) + 2 * echo) * SR + 1)
+    lead, harm = [0.0] * total, [0.0] * total
+    _voice(lead, seq, square(duty), vol * 0.8, 1.0)
+    left, right = [0.0] * total, [0.0] * total
+    _pan(left, right, lead, 0.55)
+    if harmony:
+        _voice(harm, [(third_below(m), d) for m, d in seq], square(0.125), vol * 0.35, 1.0)
+        _pan(left, right, harm, 0.25)
+    e = int(echo * SR)
+    _pan(left, right, [0.3 * x for x in lead], 0.9, e)
+    _pan(left, right, [0.15 * x for x in lead], 0.1, 2 * e)
+    return _normalize(left, right)
+
+
+def _placed(mono, pan, haas=0.012):
+    """A mono sound placed in the field, with a tiny delay on the far side for width."""
+    delay = int(haas * SR) if pan != 0.5 else 0
+    left, right = [0.0] * (len(mono) + delay), [0.0] * (len(mono) + delay)
+    _pan(left, right, mono, pan)
+    if delay:  # a faint, slightly late copy on the far side
+        _pan(left, right, [0.25 * x for x in mono], 1.0 - pan, delay)
+    return _normalize(left, right)
+
+
+STEREO = {
+    "theme": lambda: render_song_stereo(LEAD, BASS_ROOTS, BPM),
+    "victory": lambda: render_song_stereo(VICTORY, VICTORY_ROOTS, 132),
+    "gameover": lambda: render_song_stereo(GAMEOVER, GAMEOVER_ROOTS, 96, drums=False),
+    "move": lambda: _placed(render_sfx([("E6", 0.035)]), 0.5),
+    "select": lambda: render_sfx_stereo([("C6", 0.05), ("E6", 0.05), ("G6", 0.05), ("C7", 0.2)], 0.25),
+    "level": lambda: render_sfx_stereo([("G4", 0.08), ("G4", 0.08), ("G4", 0.08), ("C5", 0.24),
+                                        ("E5", 0.08), ("G5", 0.08), ("C6", 0.12), ("G5", 0.08),
+                                        ("C6", 0.45)], 0.25),
+    "win": lambda: render_sfx_stereo([("C6", 0.06), ("G6", 0.06), ("C7", 0.18)], 0.25),
+    "lose": lambda: render_sfx_stereo([("E4", 0.12), ("D#4", 0.12), ("D4", 0.12), ("C#4", 0.4)],
+                                      0.5, 0.25, harmony=False),
+    "clear": lambda: render_sfx_stereo([("C5", 0.09), ("E5", 0.09), ("G5", 0.09), ("C6", 0.09),
+                                        ("E6", 0.09), ("G6", 0.27), ("E6", 0.09), ("G6", 0.6)], 0.25),
+    "fail": lambda: render_sfx_stereo([("G4", 0.15), ("F4", 0.15), ("E4", 0.15), ("D4", 0.15),
+                                       ("C4", 0.7)], 0.5, 0.25, harmony=False),
+    "boom": lambda: _placed(render_boom(), 0.5),
+    "boom_l": lambda: _placed(render_boom(), 0.15),  # fireworks: the boom comes from the burst's side
+    "boom_r": lambda: _placed(render_boom(), 0.85),
+}
+
+
+def write_wav(path, samples, right=None):
+    """Mono, or stereo when the right channel is given."""
+    frames = samples if right is None else [s for pair in zip(samples, right) for s in pair]
+    data = array.array("h", (int(max(-1.0, min(1.0, s)) * 0.8 * 32767) for s in frames))
     if sys.byteorder == "big":
         data.byteswap()
     tmp = path.with_suffix(".tmp")
     with wave.open(str(tmp), "wb") as wf:
-        wf.setnchannels(1)
+        wf.setnchannels(1 if right is None else 2)
         wf.setsampwidth(2)
         wf.setframerate(SR)
         wf.writeframes(data.tobytes())
     tmp.replace(path)
 
 
-def sound_dir():
+def sound_dir(stereo=False):
     base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    d = base / "cka-megatrainer" / f"sound-v{SOUND_VERSION}"
+    name = f"sound-v{SOUND_VERSION}" + (f"-stereo{STEREO_VERSION}" if stereo else "")
+    d = base / "cka-megatrainer" / name
     try:
         d.mkdir(parents=True, exist_ok=True)
         return d
@@ -921,13 +1163,13 @@ def sound_dir():
         return Path(tempfile.mkdtemp(prefix="cka-sound-"))
 
 
-def build_sounds(directory):
+def build_sounds(directory, stereo=False):
     """Render every sound once and cache it. Returns {name: path}."""
     files = {}
-    for name, make in [*SONGS.items(), *SFX.items()]:
+    for name, make in (STEREO.items() if stereo else [*SONGS.items(), *SFX.items()]):
         path = directory / f"{name}.wav"
         if not path.exists():
-            write_wav(path, make())
+            write_wav(path, *make()) if stereo else write_wav(path, make())
         files[name] = path
     return files
 
@@ -953,6 +1195,11 @@ class Sound:
         self.music_on = True
         self.track = "theme"
         self.ready = threading.Event()
+        self.stereo = False  # OPTIONS > SOUND; the stereo set is rendered on first use
+        self.stereo_files = {}
+        self.stereo_ready = threading.Event()
+        self.stereo_started = False
+        self.music_file = None
         if self.player:
             threading.Thread(target=self._prepare, daemon=True).start()
         atexit.register(self._kill_music)
@@ -972,18 +1219,49 @@ class Sound:
             return "NO AUDIO"
         return "MUSIC ON" if self.music_on else "MUSIC OFF"
 
+    def _prepare_stereo(self):
+        try:
+            self.stereo_files = build_sounds(sound_dir(stereo=True), stereo=True)
+            self.stereo_ready.set()
+        except OSError:
+            pass  # stays mono
+
+    def set_stereo(self, on):
+        """Switch the sound set; the music follows as soon as the stereo set is rendered."""
+        self.stereo = on
+        if on and self.player and not self.stereo_started:
+            self.stereo_started = True
+            threading.Thread(target=self._prepare_stereo, daemon=True).start()
+
+    def set_music(self, on):
+        self.music_on = on
+        self.quick_failures = 0
+        if on:
+            self.tick()
+        else:
+            self._kill_music()
+
+    def _file(self, name):
+        if self.stereo and self.stereo_ready.is_set() and name in self.stereo_files:
+            return self.stereo_files[name]
+        return self.files.get(name) if self.ready.is_set() else None
+
     def _spawn(self, name):
-        if not (self.player and self.ready.is_set() and name in self.files):
+        path = self._file(name) if self.player else None
+        if path is None:
             return None
         try:
-            return subprocess.Popen(self.player + [str(self.files[name])],
+            return subprocess.Popen(self.player + [str(path)],
                                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                     stderr=subprocess.DEVNULL, start_new_session=True)
         except OSError:
             self.player = None
             return None
 
-    def play(self, name):
+    def play(self, name, pan=None):
+        """pan (0 = left .. 1 = right) places a firework boom, in stereo."""
+        if name == "boom" and pan is not None and self.stereo:
+            name = "boom_l" if pan < 0.35 else "boom_r" if pan > 0.65 else "boom"
         self._spawn(name)
 
     def wait_ready(self, timeout):
@@ -995,7 +1273,9 @@ class Sound:
         if not (self.want_music and self.music_on):
             return
         if self.music and self.music.poll() is None:
-            return
+            if self.music_file == self._file(self.track):
+                return
+            self._kill_music()  # the sound set changed (MONO <-> STEREO): restart in the new one
         if self.music:  # it ended: a loop, or the player failing right away
             ran = time.monotonic() - self.music_started
             self.quick_failures = self.quick_failures + 1 if ran < 2 else 0
@@ -1003,6 +1283,7 @@ class Sound:
                 self.music_on = False
                 return
         self.music = self._spawn(self.track)
+        self.music_file = self._file(self.track)
         self.music_started = time.monotonic()
 
     def start_music(self, track="theme"):
@@ -1015,14 +1296,6 @@ class Sound:
     def stop_music(self):
         self.want_music = False
         self._kill_music()
-
-    def toggle_music(self):
-        self.music_on = not self.music_on
-        if self.music_on:
-            self.quick_failures = 0
-            self.tick()
-        else:
-            self._kill_music()
 
     def _kill_music(self):
         if self.music and self.music.poll() is None:

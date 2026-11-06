@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Render the promo video (docs/media/promo.mp4): about 35 s, 1080x1080, with the game's own music.
+"""Render the promo video (docs/media/promo.mp4): about 45 s (38 s with --short), 1080x1080,
+with the game's own music.
 
     python3 tools/promo_video.py [--short] [--out FILE] [--cache FILE] [--stills DIR]
 

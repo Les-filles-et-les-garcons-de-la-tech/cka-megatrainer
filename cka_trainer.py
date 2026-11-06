@@ -40,7 +40,10 @@ PASTE_QUARANTINE = 0.3  # seconds during which the tail of a paste is still drop
 PASTE_START, PASTE_END = -200, -201  # bracketed-paste markers (ints: the editor ignores them)
 
 A = {}  # curses attributes, filled by init_colors()
-SETTINGS = {"allow_paste": False, "silent": False, "learn": False}
+SETTINGS = {"allow_paste": False, "silent": False, "learn": False,  # OPTIONS screen + flags
+            "timer": "question", "level": "hard", "stereo": False}
+LEVELS = {"easy": 1, "medium": 2, "hard": 3}  # a level plays the questions up to its difficulty
+EXAM_SECONDS = 120 * 60  # the CKA: 2 hours for the whole exam
 PRIME_OK = "Right. Before you move on: say why each of the others fails."
 PRIME_MISS = "Good place to miss it: here a mistake is free; in production it costs sleep."
 
@@ -86,12 +89,16 @@ def validate_question(q, domains, seen):
             fail(f"missing '{key}'")
     if q["domain"] not in domains:
         fail(f"unknown domain '{q['domain']}'")
-    for d in q.get("docs", []):
-        if not d.get("title") or not str(d.get("url", "")).startswith("https://"):
+    if q.get("difficulty") not in (1, 2, 3):  # LEVEL (OPTIONS) filters on it
+        fail("'difficulty' must be 1 (easy), 2 (medium) or 3 (hard)")
+    if not isinstance(q.get("docs"), list) or not q["docs"]:
+        fail("'docs' must be a non-empty list of {title, url}")
+    for d in q["docs"]:
+        if not isinstance(d, dict) or not d.get("title") or not str(d.get("url", "")).startswith("https://"):
             fail(f"docs entries need a 'title' and an https 'url': {d}")
     for key in ("stakes", "analogy"):
-        if key in q and not (isinstance(q[key], str) and 0 < len(q[key]) <= MAX_STORY):
-            fail(f"'{key}' must be a short text (<= {MAX_STORY} characters)")
+        if not (isinstance(q.get(key), str) and 0 < len(q[key]) <= MAX_STORY):
+            fail(f"'{key}' must be a short text (1-{MAX_STORY} characters)")
     steps = q["steps"]
     if q["start"] not in steps:
         fail(f"start step '{q['start']}' does not exist")
@@ -465,11 +472,16 @@ def too_small(stdscr):
     return True
 
 
+def clock_text(seconds):
+    seconds = max(0, int(seconds))
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
 def countdown(stdscr, y, remaining, limit):
     w = stdscr.getmaxyx()[1]
     frac = max(0.0, remaining / limit)
     color = A["green"] if frac > 0.5 else A["yellow"] if frac > 0.25 else A["red"]
-    label = f" {remaining:5.1f}s / {limit}s "
+    label = f" {clock_text(remaining)} / {clock_text(limit)} " if limit >= 600 else f" {remaining:5.1f}s / {limit}s "
     width = max(10, w - len(label) - 1)
     filled = int(round(frac * width))
     put(stdscr, y, 0, "█" * filled, color | A["bold"])
@@ -494,7 +506,7 @@ def pager(stdscr, title, lines, footer="Enter: continue   q: quit"):
         header(stdscr, title)
         for i, (text, attr) in enumerate(body[off:off + view]):
             put(stdscr, 2 + i, 2, text, attr)
-        more = "  ↑/↓ scroll" if len(body) > view else ""
+        more = "  UP/DOWN scroll" if len(body) > view else ""  # VT323 has no arrow glyphs
         put(stdscr, h - 1, 0, footer + more, A["dim"])
         stdscr.refresh()
         try:
@@ -644,8 +656,9 @@ def draw_step(stdscr, title, q, step, options, ed, remaining, limit, warn=False,
     stdscr.refresh()
 
 
-def run_step(stdscr, title, q, step, options):
-    """Let the candidate answer one step. Returns (text, elapsed, how, pastes_blocked)."""
+def run_step(stdscr, title, q, step, options, clock=None):
+    """Let the candidate answer one step. Returns (text, elapsed, how, pastes_blocked).
+    clock: {"deadline", "total"} of a GLOBAL timer, which then replaces the step's own limit."""
     limit = min(step.get("time_limit", MAX_TIME), MAX_TIME)
     ed = Editor(as_text(step.get("prefill")) if step["type"] == "edit" else "")
     curses.flushinp()  # drop keys typed on the previous screen
@@ -656,13 +669,14 @@ def run_step(stdscr, title, q, step, options):
     while True:
         now = time.monotonic()
         elapsed = now - start
-        if elapsed >= limit:
-            return ed.text(), float(limit), "timeout", pastes
+        remaining, total = (clock["deadline"] - now, clock["total"]) if clock else (limit - elapsed, limit)
+        if remaining <= 0:
+            return ed.text(), (elapsed if clock else float(limit)), "timeout", pastes
         if too_small(stdscr):
             curses.napms(200)
             continue
         curses.curs_set(1)
-        draw_step(stdscr, title, q, step, options, ed, limit - elapsed, limit, now < warn_until, view)
+        draw_step(stdscr, title, q, step, options, ed, remaining, total, now < warn_until, view)
         try:
             keys = read_burst(stdscr)
         except curses.error:
@@ -716,7 +730,7 @@ def docs_lines(docs):
     return lines
 
 
-def feedback_lines(step, options, text, res, elapsed, pts, pastes=0, docs=None):
+def feedback_lines(step, options, text, res, elapsed, pts, pastes=0, docs=None, clock=None):
     limit = min(step.get("time_limit", MAX_TIME), MAX_TIME)
     if res["ok"]:
         verdict = ("✔ CORRECT", A["green"] | A["bold"])
@@ -726,7 +740,12 @@ def feedback_lines(step, options, text, res, elapsed, pts, pastes=0, docs=None):
         verdict = ("» SKIPPED", A["yellow"] | A["bold"])
     else:
         verdict = ("✘ WRONG", A["red"] | A["bold"])
-    lines = [verdict, (f"Time {elapsed:.1f}s of {limit}s   +{pts} points", A["dim"])]
+    if clock:
+        left = clock_text(clock["deadline"] - time.monotonic())
+        timing = f"Time {elapsed:.1f}s   +{pts} points   ·   global clock: {left} left"
+    else:
+        timing = f"Time {elapsed:.1f}s of {limit}s   +{pts} points"
+    lines = [verdict, (timing, A["dim"])]
     if pastes:
         lines.append((f"⛔ {pastes} paste attempt(s) blocked", A["red"]))
     lines.append(("", 0))
@@ -821,7 +840,7 @@ def recap_lines(q, earned, solved):
     return lines + docs_lines(q.get("docs"))
 
 
-def ask_question(stdscr, q, n, total, score, domains, sound):
+def ask_question(stdscr, q, n, total, score, domains, sound, clock=None):
     sid, stepno, earned, solved = q["start"], 0, 0, False
     path = correct_path(q)
     plen = len(path)
@@ -830,7 +849,9 @@ def ask_question(stdscr, q, n, total, score, domains, sound):
     retro.level_screen(stdscr, n, total, [
         (domains[q["domain"]]["name"].split(",")[0].upper() + f"  ·  {q['id']}", "cyan"),
         (q["title"], "yellow"),
-        (f"{plen} step{'s' * (plen > 1)}  ·  {seconds}s on the clock", "white"),
+        (f"{plen} step{'s' * (plen > 1)}  ·  " + (f"{clock_text(clock['deadline'] - time.monotonic())} left "
+                                                   f"on the global clock" if clock else f"{seconds}s on the clock"),
+         "white"),
     ], sound)
     while sid:
         step = q["steps"][sid]
@@ -839,7 +860,7 @@ def ask_question(stdscr, q, n, total, score, domains, sound):
         random.shuffle(options)
         title = (f" {'CKA LEARN' if SETTINGS['learn'] else 'CKA MEGATRAINER'}  Q{n}/{total}  {q['id']}  {domains[q['domain']]['name']}"
                  f"  ·  step {stepno}/{plen}  ·  score {score + earned}")
-        text, elapsed, how, pastes = run_step(stdscr, title, q, step, options)
+        text, elapsed, how, pastes = run_step(stdscr, title, q, step, options, clock)
         res = judge(step, text, how)
         sound.play("win" if res["ok"] else "lose")
         limit = min(step.get("time_limit", MAX_TIME), MAX_TIME)
@@ -848,11 +869,12 @@ def ask_question(stdscr, q, n, total, score, domains, sound):
         log.append({"step": sid, "ok": res["ok"], "time": elapsed, "how": how, "pastes": pastes})
         quit_ = pager(stdscr, f" {q['id']}  step {stepno}/{plen}  ·  {q['topic']}",
                       feedback_lines(step, options, text, res, elapsed, pts, pastes,
-                                     q.get("docs"))) == "quit"
+                                     q.get("docs"), clock)) == "quit"
         solved = res["ok"] and not res["next"]
-        if quit_:
+        timeup = bool(clock) and time.monotonic() >= clock["deadline"]
+        if quit_ or timeup:  # the global clock ran out: the exam is over
             return {"id": q["id"], "domain": q["domain"], "points": earned,
-                    "solved": solved, "steps": log, "quit": True}
+                    "solved": solved, "steps": log, "quit": quit_, "timeup": timeup}
         sid = res["next"]
     sound.play("clear" if solved else "fail")
     quit_ = pager(stdscr, f" {q['id']}  recap  ·  {q['title']}",
@@ -867,6 +889,15 @@ def rules_lines():
         ("Train like the exam: read the task, choose the right command and TYPE it in full.", n),
         ("CKA EXAM: 15-20 random questions in the exam's domain proportions. A domain line", n),
         ("plays a short round: its share of a 20-question exam (e.g. STORAGE 2/20 = 2).", n), ("", 0),
+        ("LEVEL (title menu, LEFT/RIGHT): EASY everyday tasks, MEDIUM + medium, HARD all.", n),
+        ("", 0),
+        ("OPTIONS (title menu)", b),
+        ("  MODE   EXAM, or LEARN: the right answer is marked, every answer links to the", n),
+        ("         Kubernetes docs, and the results are tagged LEARN MODE (also: --learn).", n),
+        ("  TIMER  BY QUESTION (a countdown per step) or GLOBAL: one clock for the session,", n),
+        ("         120 min for the CKA EXAM. When it runs out, the rest counts as failed.", n),
+        ("  MUSIC  ON / OFF.   SOUND  MONO, or STEREO with harmonies, echoes and wide fireworks.", n),
+        ("", 0),
         ("Typing another option = choosing it. Typos count as wrong, like in a real shell.", n),
         ("A leading 'k ' is accepted as 'kubectl '. Copy/paste is blocked.", n), ("", 0),
         ("Countdown", b),
@@ -910,23 +941,94 @@ def pick_domain_round(questions, domains, domain, rnd=random, n=None):
     return rnd.sample(pool, min(n, len(pool)))
 
 
+def at_level(questions, level=None):
+    """The questions a LEVEL plays: EASY the easy ones, MEDIUM easy + medium, HARD all."""
+    top = LEVELS[level or SETTINGS["level"]]
+    return [q for q in questions if q["difficulty"] <= top]
+
+
+def global_budget(questions, exam):
+    """GLOBAL timer: the CKA's 120 minutes for a full exam, else the sum of the steps' own times."""
+    if exam:
+        return EXAM_SECONDS
+    return sum(min(s.get("time_limit", MAX_TIME), MAX_TIME) for q in questions for _, s in correct_path(q))
+
+
+def option_rows(questions, sound):
+    """The OPTIONS screen: each row edits SETTINGS (or the sound) as soon as it changes."""
+    def setter(key, mapping):
+        return lambda value: SETTINGS.update({key: mapping[value]})
+
+    music_ok = sound.enabled and sound.player is not None
+    rows = [
+        {"label": "MODE", "values": ["EXAM", "LEARN"], "index": int(SETTINGS["learn"]),
+         "on_change": setter("learn", {"EXAM": False, "LEARN": True}),
+         "hints": {"EXAM": "Like the real exam: the answers are not shown.",
+                   "LEARN": "The right answer is marked and every answer links to the Kubernetes docs. "
+                            "Results are tagged LEARN MODE."}},
+        {"label": "TIMER", "values": ["BY QUESTION", "GLOBAL"], "index": int(SETTINGS["timer"] == "global"),
+         "on_change": setter("timer", {"BY QUESTION": "question", "GLOBAL": "global"}),
+         "hints": {"BY QUESTION": "Each step has its own countdown.",
+                   "GLOBAL": "One countdown for the whole session, like the CKA: 120 min for the CKA EXAM, "
+                             "the sum of the steps' times for a shorter round. When it runs out, it is over."}},
+        {"label": "MUSIC", "values": ["ON", "OFF"] if music_ok else ["OFF"],
+         "index": 0 if not music_ok or sound.music_on else 1,
+         "on_change": lambda value: sound.set_music(value == "ON") if music_ok else None,
+         "hints": {"ON": "The title, level and finale themes play.", "OFF": "No music; sound effects stay."
+                   if music_ok else ("Sound is off for this run (--silent)." if not sound.enabled
+                                     else "No audio player was found (pw-play, paplay, aplay, afplay).")}},
+        {"label": "SOUND", "values": ["MONO", "STEREO"], "index": int(SETTINGS["stereo"]),
+         "on_change": lambda value: (SETTINGS.update(stereo=value == "STEREO"),
+                                     sound.set_stereo(value == "STEREO")),
+         "hints": {"MONO": "Classic 8-bit, one channel.",
+                   "STEREO": "Wide 8-bit: harmonies, arpeggios bouncing between the speakers, echoes, "
+                             "and fireworks heard where they burst."}},
+    ]
+    return rows
+
+
+def options_status(sound):
+    """One line under the title menu: the current OPTIONS."""
+    return "  ·  ".join([
+        "LEARN" if SETTINGS["learn"] else "EXAM",
+        "GLOBAL TIMER" if SETTINGS["timer"] == "global" else "TIMER BY QUESTION",
+        "STEREO" if SETTINGS["stereo"] else "MONO",
+        sound.status])
+
+
 def menu(stdscr, domains, questions, sound):
     """Arcade title screen. Returns 'exam', a domain id, '' for all, or None to quit."""
-    counts = {d: sum(q["domain"] == d for q in questions) for d in domains}
     share = exam_plan(domains, EXAM_MAX)  # e.g. storage: 2 of a 20-question exam
-    items = [("exam", "CKA EXAM", f"{EXAM_MIN}-{EXAM_MAX}Q")]
-    items += [(d, v["name"].split(",")[0].upper(), f"{share[d]}/{EXAM_MAX} {v['weight']:>2}%")
-              for d, v in domains.items() if counts[d]]
-    items += [("", "ALL QUESTIONS", f"{len(questions)}Q"),
-              ("help", "HOW TO PLAY", ""), (None, "QUIT", "")]
+
+    def make_items():
+        pool = at_level(questions)
+        counts = {d: sum(q["domain"] == d for q in pool) for d in domains}
+        items = [("exam", "CKA EXAM", f"{EXAM_MIN}-{EXAM_MAX}Q")]
+        items += [(d, v["name"].split(",")[0].upper(), f"{share[d]}/{EXAM_MAX} {v['weight']:>2}%")
+                  for d, v in domains.items() if counts[d]]
+        return items + [("", "ALL QUESTIONS", f"{len(pool)}Q"),
+                        ("level", "LEVEL", SETTINGS["level"].upper()),  # changed in place
+                        ("help", "HOW TO PLAY", ""), ("options", "OPTIONS", ""), (None, "QUIT", "")]
+
+    def cycle_level(step):
+        names = list(LEVELS)
+        SETTINGS["level"] = names[(names.index(SETTINGS["level"]) + step) % len(names)]
+        return make_items()
+
     sel = 0
     while True:
-        sel = retro.title_screen(stdscr, items, sel, sound, read_key)
+        items = make_items()
+        sel = min(sel, len(items) - 1)
+        sel = retro.title_screen(stdscr, items, sel, sound, read_key, status=options_status(sound),
+                                 cycle={"level": cycle_level})
         if sel is None or items[sel][0] is None:
             return None
         value, label, _ = items[sel]
         if value == "help":
             pager(stdscr, " HOW TO PLAY", rules_lines(), footer="Enter: back")
+            continue
+        if value == "options":
+            retro.options_screen(stdscr, option_rows(questions, sound), sound, read_key)
             continue
         retro.get_ready(stdscr, label, sound)
         return value
@@ -937,7 +1039,8 @@ def summary_lines(results, domains):
     steps = [s for r in results for s in r["steps"]]
     good = [s for s in steps if s["ok"]]
     solved = sum(r["solved"] for r in results)
-    lines = [(f"Score: {total_pts} points", A["bold"]),
+    lines = [("Learn mode: the answers were shown", A["green"])] if SETTINGS["learn"] else []
+    lines += [(f"Score: {total_pts} points", A["bold"]),
              (f"Questions solved: {solved}/{len(results)}", 0),
              (f"Steps correct: {len(good)}/{len(steps)}", 0)]
     if good:
@@ -952,8 +1055,8 @@ def summary_lines(results, domains):
     missed = [r["id"] for r in results if not r["solved"]]
     if missed:
         lines += [("", 0), ("Review these questions:", A["bold"]), ("  " + "  ".join(missed), A["yellow"]),
-                  (f"  Replay them with: python3 {sys.argv[0]} " + " ".join(f"--id {m}" for m in missed),
-                   A["dim"])]
+                  (f"  Replay them with: python3 {sys.argv[0]} " + ("--learn " if SETTINGS["learn"] else "")
+                   + " ".join(f"--id {m}" for m in missed), A["dim"])]
     return lines
 
 
@@ -975,7 +1078,8 @@ def finale_info(results, questions, domains):
     return {"won": percent >= PASS_PERCENT, "score": sum(r["points"] for r in results),
             "percent": percent, "pass_percent": PASS_PERCENT,
             "solved": sum(r["solved"] for r in results), "total": len(results),
-            "pods": pods, "review": [r["id"] for r in results if not r["solved"]]}
+            "pods": pods, "review": [r["id"] for r in results if not r["solved"]],
+            "learn": SETTINGS["learn"], "unreached": sum(bool(r.get("unreached")) for r in results)}
 
 
 def play(stdscr, domains, questions, args):
@@ -983,6 +1087,7 @@ def play(stdscr, domains, questions, args):
     sys.stdout.write("\x1b[?2004h")  # bracketed paste: terminal marks pasted text
     sys.stdout.flush()
     sound = retro.Sound(enabled=not SETTINGS["silent"])
+    sound.set_stereo(SETTINGS["stereo"])
     try:
         return session(stdscr, domains, questions, args, sound)
     finally:
@@ -997,6 +1102,8 @@ def session(stdscr, domains, questions, args, sound):
         choice = menu(stdscr, domains, questions, sound)
         if choice is None:
             return []
+    if not args.id:  # explicit --id plays exactly what was asked
+        questions = at_level(questions)
     if choice == "exam":
         questions = pick_exam(questions, domains, n=args.count)
     elif choice:  # a domain line of the menu: its share of a 20-question exam, as labelled
@@ -1006,13 +1113,20 @@ def session(stdscr, domains, questions, args, sound):
             random.shuffle(questions)
         if args.count:
             questions = questions[:args.count]
+    clock = None
+    if SETTINGS["timer"] == "global":
+        total = global_budget(questions, exam=choice == "exam")
+        clock = {"total": total, "deadline": time.monotonic() + total}
     results, score = [], 0
     for n, q in enumerate(questions, 1):
-        r = ask_question(stdscr, q, n, len(questions), score, domains, sound)
+        r = ask_question(stdscr, q, n, len(questions), score, domains, sound, clock)
         results.append(r)
         score += r["points"]
-        if r["quit"]:
+        if r["quit"] or r.get("timeup"):
             break
+    if clock and results and results[-1].get("timeup"):  # what the clock left unreached counts as failed
+        results += [{"id": q["id"], "domain": q["domain"], "points": 0, "solved": False, "steps": [],
+                     "quit": False, "unreached": True} for q in questions[len(results):]]
     if results:
         retro.finale(stdscr, finale_info(results, questions, domains), sound)
     return results
@@ -1021,7 +1135,8 @@ def session(stdscr, domains, questions, args, sound):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Timed, type-your-answer CKA trainer.")
     ap.add_argument("--db", default=DEFAULT_DB, help="question database (JSON)")
-    ap.add_argument("--domain", help="only this domain id (skips the menu)")
+    ap.add_argument("--domain", help="all the questions of this domain id (skips the menu; "
+                                     "a domain line of the menu plays a short round instead)")
     ap.add_argument("--id", action="append", help="only this question id (repeatable)")
     ap.add_argument("--exam", action="store_true",
                     help=f"CKA-like exam: {EXAM_MIN}-{EXAM_MAX} random questions in domain proportions (skips the menu)")
@@ -1032,6 +1147,12 @@ def main(argv=None):
     ap.add_argument("--learn", action="store_true",
                     help="learn mode: the right answer is marked with a green check, and each answer "
                          "page links to the Kubernetes documentation")
+    ap.add_argument("--level", choices=list(LEVELS), default="hard",
+                    help="easy: easy questions only; medium: easy + medium; hard: all (default)")
+    ap.add_argument("--timer", choices=["question", "global"], default="question",
+                    help="question: a countdown per step (default); global: one clock for the session "
+                         "(120 min for a CKA exam)")
+    ap.add_argument("--stereo", action="store_true", help="stereo sound with more voices")
     ap.add_argument("--theme", choices=retro.THEMES, default="retro",
                     help="retro: vivid RGB on black (default); soft: the terminal's own colours")
     ap.add_argument("--validate", action="store_true", help="check the database and exit")
@@ -1040,6 +1161,7 @@ def main(argv=None):
     SETTINGS["allow_paste"] = args.allow_paste
     SETTINGS["silent"] = args.silent
     SETTINGS["learn"] = args.learn
+    SETTINGS.update(level=args.level, timer=args.timer, stereo=args.stereo)
     retro.set_theme(args.theme)
 
     try:

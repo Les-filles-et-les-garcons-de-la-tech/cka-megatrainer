@@ -101,9 +101,31 @@ cluster-8hjzw           2/2     Running           0         3m12s
 troubleshooting-x4k2p   1/3     CrashLoopBackOff  2         6m40s
 ```
 
+### Options
+
+**OPTIONS**, on the title menu, opens a screen of four settings (UP/DOWN to choose, LEFT/RIGHT or Enter
+to change, Q to go back). They apply at once and reset at the next launch; a line under the title
+menu always shows the current ones.
+
+| Option | Values | Effect |
+|---|---|---|
+| MODE | **EXAM** / LEARN | LEARN shows the answers (see [Learn mode](#learn-mode)) |
+| TIMER | **BY QUESTION** / GLOBAL | GLOBAL: one countdown for the whole session, like the CKA: **120 minutes** for the CKA EXAM, the sum of its steps' own times for a shorter round. When it runs out, the session ends and the questions not reached count as failed |
+| MUSIC | **ON** / OFF | the themes of the title, level and finale screens; sound effects stay |
+| SOUND | **MONO** / STEREO | STEREO: the same original tunes arranged wide, with a harmony, arpeggios bouncing between the speakers, echoes, and fireworks heard where they burst (rendered once, about 3 s, then cached) |
+
+Defaults in bold. The same settings exist as flags: `--learn`, `--silent`, `--timer global`,
+`--stereo`.
+
+**LEVEL** is on the title menu itself, just before HOW TO PLAY: select it and press LEFT/RIGHT (or
+Enter) to switch between **EASY** (everyday tasks, 34 questions), **MEDIUM** (easy + medium, 78) and
+**HARD** (all 100, node and control-plane repairs included; the default). The question counts of
+the menu follow at once, and every level can fill a 20-question exam in the CKA proportions. Flag:
+`--level easy`.
+
 ### Learn mode
 
-**`make start-learn`** (or `make start-learn-here` for the current terminal) is the same game with the answers shown, to study before you play for real:
+**`make start-learn`** (or `make start-learn-here` for the current terminal, or MODE in OPTIONS) is the same game with the answers shown, to study before you play for real:
 
 - the right option carries a **green ✔** while you answer (a command or a snippet), so you see what
   to type, and you still have to type it, against the clock;
@@ -139,7 +161,7 @@ kubeconfig or clusters. Contributors adding a question add its test there too.
 | Ctrl+X | skip step | skip step |
 | Ctrl+C | quit | quit |
 
-On the title screen: ↑/↓ and Enter, **M** toggles the music, **Q** quits.
+On the title screen: ↑/↓ and Enter, LEFT/RIGHT on the LEVEL line, **Q** quits. Mode, timer, music and sound are in **OPTIONS**.
 
 ## Commands
 
@@ -164,6 +186,9 @@ make help                                # all targets
 ./cka_trainer.py --count 5                   # 5 random questions
 ./cka_trainer.py --theme soft                # your terminal's colours instead of retro RGB
 ./cka_trainer.py --learn                     # learn mode (see above)
+./cka_trainer.py --exam --timer global       # the real format: one 120-minute clock
+./cka_trainer.py --level easy                # everyday tasks only (medium: + medium; hard: all)
+./cka_trainer.py --stereo                    # stereo sound, more voices
 ./cka_trainer.py --silent                    # no sound
 ./cka_trainer.py --allow-paste               # practise without the paste blocker
 ./cka_trainer.py --list                      # list question ids
