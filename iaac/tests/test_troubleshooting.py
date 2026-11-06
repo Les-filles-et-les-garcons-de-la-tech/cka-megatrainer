@@ -7,7 +7,7 @@ import time
 import unittest
 from pathlib import Path
 
-from lib import ENV, WORKER, ClusterTest, answer, final_file, node, prefill, sh, wait_for
+from lib import CONTROL_PLANE, ENV, PODMAN, WORKER, ClusterTest, run_pod, answer, final_file, node, prefill, sh, wait_for
 
 HASHED = re.compile(r"\b[a-z][a-z0-9-]*-[0-9a-f]{6,10}-[a-z0-9]{5}\b")  # the game's made-up Pod names
 
@@ -49,10 +49,10 @@ spec:
         self.assertIn("137", res.out)
 
     def test_trb003_dns_check_needs_busybox_1_28(self):
-        res = sh(answer("TRB-003", "s1").replace(" -it ", " -i "), timeout=120)
+        res = run_pod(answer("TRB-003", "s1"), expect="Name:", timeout=240)
         self.assertIn("Name:", res.out)
         self.assertNotIn("NXDOMAIN", res.out)                       # healthy DNS must look healthy
-        self.assertIn("coredns", self.answer_ok("TRB-003", "s2").out.lower() + "coredns")
+        self.assertIn("coredns", self.answer_ok("TRB-003", "s2").out.lower())
         # the same check with a newer busybox misleads: that is why the game pins 1.28
         newer = sh(answer("TRB-003", "s1").replace(" -it ", " -i ").replace("busybox:1.28", "busybox:1.36"), timeout=120)
         self.assertIn("NXDOMAIN", newer.out)
@@ -316,7 +316,7 @@ class NodeReadOnly(ClusterTest):
         self.assertTrue(cid)
         out = node(answer("TRB-030", "s2").replace("a1b2c3d4e5f6", cid[:12]))
         self.assertTrue(out, out)                                      # an id prefix is enough
-        files = node(answer("TRB-030", "s3").replace("controlplane", "cka-test-control-plane"))
+        files = node(answer("TRB-030", "s3").replace("controlplane", CONTROL_PLANE))
         self.assertTrue(files, files)
         self.assertGreater(len(files.out.splitlines()), 0)
 
@@ -328,7 +328,7 @@ class NodeReadOnly(ClusterTest):
         listening = node(answer("TRB-024", "s2").replace("sudo ", ""))
         if listening:                                                  # ss may be missing in the node image
             self.assertIn("6443", listening.out)
-        self.assertIn("--secure-port", node("cat /etc/kubernetes/manifests/kube-apiserver.yaml").out + "--secure-port")
+        self.assertIn("--secure-port", node("cat /etc/kubernetes/manifests/kube-apiserver.yaml").out)
 
     def test_trb023_trb027_runtime_and_cni_checks(self):
         status = node(answer("TRB-023", "s1").replace("sudo ", ""))
@@ -348,7 +348,7 @@ class NodeReadOnly(ClusterTest):
 
 class NotReadyNode(ClusterTest):
     def test_trb002_a_stopped_kubelet_makes_the_node_notready(self):
-        self.cleanup_cmd(f"podman exec {WORKER} systemctl enable --now kubelet")
+        self.cleanup_cmd(f"{PODMAN} exec {WORKER} systemctl enable --now kubelet")
         node("systemctl disable --now kubelet", which=WORKER)
         res = wait_for(f"kubectl get node {WORKER}", "NotReady", 150, every=5)
         self.assertIn("NotReady", res.out)
@@ -360,6 +360,10 @@ class NotReadyNode(ClusterTest):
         self.assertTrue(node(fix("s4"), which=WORKER))
         res = wait_for(f"kubectl get node {WORKER}", " Ready", 150, every=5)
         self.assertNotIn("NotReady", res.out, res)
+        # a Ready node is not a ready network: wait for its kube-proxy / CNI / DNS Pods too, or the
+        # next test's Pod (TRB-003's nslookup) lands on a worker whose networking is still restarting
+        self.ok(f"kubectl wait --for=condition=Ready pod -n kube-system --field-selector spec.nodeName={WORKER}"
+                " --timeout=120s", timeout=150)
 
 
 if __name__ == "__main__":

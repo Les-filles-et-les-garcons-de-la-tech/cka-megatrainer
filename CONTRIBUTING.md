@@ -23,7 +23,8 @@ make check-links    # only when you touched documentation links (needs network)
 make iaac-up iaac-test ARGS=test_storage   # your question's answers on a real cluster (see iaac/README.md)
 ```
 
-- **Python standard library only**: no pip dependencies.
+- **Python standard library only** for the game: no pip dependencies. Maintainer tools may need
+  extras (`tools/promo_video.py`: Pillow and ffmpeg).
 - **English** for all UI text and question content.
 - For UI changes, look at the result: `make screenshot` (needs tmux) and check 80x24 as well as
   100x38. If the screens shown in the README change, regenerate them with `make readme-media`.
@@ -39,7 +40,7 @@ multiple choice where the player must **type** the chosen answer.
 {
   "id": "TRB-004",              // unique; prefix = domain: CLU, WRK, STO, NET, TRB
   "domain": "troubleshooting",  // one of the ids in "domains"
-  "topic": "…", "difficulty": 1,  // 1-3
+  "topic": "…", "difficulty": 1,  // 1 easy, 2 medium, 3 hard: see the rubric below (OPTIONS > LEVEL)
   "title": "…", "scenario": "…",
   "tip": "an exam tip shown in the recap",
   "docs": [                      // learn mode links these on the answer pages (1-3 entries)
@@ -114,6 +115,19 @@ Rules (`./cka_trainer.py --validate` enforces most of them):
   command (the concrete symptom), not just that it is wrong. Learn mode shows the `why` of every
   wrong option on every answer page, even after a correct answer, so write them as small lessons.
 - Keep snippets short (≤ 8 lines, 3–4 options): they share the screen with the editor.
+- Rate `difficulty` with this rubric (OPTIONS > LEVEL plays EASY = 1, MEDIUM = 1-2, HARD = all):
+  - **1 easy**: everyday, application-level work around one concept: Pods, Deployments, Services,
+    ConfigMaps / Secrets, basic RBAC, contexts, logs / events / top, basic Helm or Kustomize,
+    basic storage objects;
+  - **2 medium**: several concepts, or less common objects and flags: scheduling constraints,
+    probes, HPA, NetworkPolicy, Ingress / Gateway basics, CRDs and operators, Helm values;
+    troubleshooting that needs reasoning; read-only node work (crictl, kubeconfig, etcd backup);
+  - **3 hard**: changes to nodes or the control plane that can break the cluster (kubeadm init /
+    upgrade, etcd restore, certificates, static Pod and kubelet repairs, CNI install, kube-proxy),
+    multi-rule NetworkPolicy, traffic splitting, CoreDNS.
+
+  A test checks that every level can still fill a 20-question exam in the CKA proportions, with
+  some variety: the easy pool of each domain must hold at least 1.5 times its share.
 - Keep the library in the CKA proportions: **one question per percent of weight** per 100 questions
   (Troubleshooting 30 %, Cluster Architecture 25 %, Services & Networking 20 %, Workloads &
   Scheduling 15 %, Storage 10 %). The tests check the exact counts: add questions in proportional

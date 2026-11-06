@@ -1,4 +1,5 @@
 """Cluster Architecture, Installation & Configuration (CLU-*): the correct answers, run for real."""
+import os
 import shlex
 import time
 import shutil
@@ -6,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lib import CONTROL_PLANE, ENV, WORKER, ClusterTest, answer, final_file, node, sh, wait_for
+from lib import CLUSTER, CONTROL_PLANE, ENV, WORKER, ClusterTest, answer, final_file, node, sh, wait_for
 
 ETCD_POD = f"etcd-{CONTROL_PLANE}"
 PKI = "/etc/kubernetes/pki/etcd"
@@ -44,8 +45,8 @@ class Kubeconfig(ClusterTest):
             cfg = f"{d}/config"
             env = dict(ENV, KUBECONFIG=cfg)
             sh(f"kubectl config view --minify --flatten > {cfg}")
-            sh("kubectl config rename-context kind-cka-test prod-admin@prod", env=env)
-            sh("kubectl config set-context dev-admin@dev --cluster=kind-cka-test --user=kind-cka-test", env=env)
+            sh(f"kubectl config rename-context kind-{CLUSTER} prod-admin@prod", env=env)
+            sh(f"kubectl config set-context dev-admin@dev --cluster=kind-{CLUSTER} --user=kind-{CLUSTER}", env=env)
             sh("kubectl config use-context dev-admin@dev", env=env)
             listing = self.ok(answer("CLU-010", "s1"), env=env).out
             self.assertIn("prod-admin@prod", listing)
@@ -331,7 +332,11 @@ spec:
         self.assertIn("cannot delete", refused.out)
         self.ok(fix("s1"), "drained", timeout=120)
         self.assertIn("SchedulingDisabled", self.ok(f"kubectl get node {WORKER}").out)
-        res = node(fix("s2").replace("sudo ", ""), which=WORKER, timeout=180)
+        upgrade = fix("s2").replace("sudo ", "")
+        res = node(upgrade, which=WORKER, timeout=180)
+        if not res and "missing required cgroups" in res.out:      # rootless Podman: cgroup controllers
+            # (cpuset) are not delegated to the node container; kind skips this check at creation too
+            res = node(upgrade + " --ignore-preflight-errors=SystemVerification", which=WORKER, timeout=180)
         self.assertTrue(res, res)                                  # 'kubeadm upgrade node' on a worker
         self.ok(fix("s3"))
         self.assertNotIn("SchedulingDisabled", self.ok(f"kubectl get node {WORKER}").out)
@@ -369,15 +374,29 @@ spec:
         self.assertEqual(node("ls -l /etc/kubernetes/manifests").out, before)   # nothing changed
 
     def test_clu012_node_prerequisites(self):
-        run = lambda sid: node(answer("CLU-012", sid), which=WORKER)  # noqa: E731
-        self.assertTrue(run("s1"), run("s1"))
+        # kind nodes share the HOST kernel: swapoff, modprobe and sysctl --system would act on the
+        # machine running the tests (its swap, modules, kernel settings). By default the answers
+        # are checked without effect; HOST_AFFECTING=1 runs them for real.
+        cmd = {sid: answer("CLU-012", sid) for sid in ("s1", "s2", "s4")}
+        self.assertEqual((cmd["s1"], cmd["s2"], cmd["s4"]),
+                         ("swapoff -a", "modprobe -a overlay br_netfilter", "sysctl --system"))
+        self.assertIn("net.ipv4.ip_forward = 1", final_file("CLU-012", "s3"))
+        if not os.environ.get("HOST_AFFECTING"):
+            self.assertTrue(node("command -v swapoff", which=WORKER))
+            dry = node("modprobe --dry-run -a overlay br_netfilter", which=WORKER)  # resolves, loads nothing
+            if not dry:                                            # no /lib/modules in this node image
+                self.skipTest(f"modprobe cannot resolve modules in this kind node: {dry.out}")
+            self.assertTrue(node("sysctl -n net.ipv4.ip_forward", which=WORKER))  # read only
+            return
+        res = node(cmd["s1"], which=WORKER)
+        self.assertTrue(res, res)
         self.assertEqual(node("swapon --show --noheadings | wc -l", which=WORKER).out, "0")
-        mods = run("s2")
+        mods = node(cmd["s2"], which=WORKER)
         if not mods:                                               # a container may be refused kernel modules
             self.skipTest(f"modprobe not allowed in this kind node: {mods.out}")
-        loaded = node("lsmod", which=WORKER).out
-        self.assertIn("br_netfilter", loaded)
-        self.assertTrue(run("s4"), run("s4"))
+        self.assertIn("br_netfilter", node("lsmod", which=WORKER).out)
+        res = node(cmd["s4"], which=WORKER)
+        self.assertTrue(res, res)
         self.assertEqual(node("sysctl -n net.ipv4.ip_forward", which=WORKER).out, "1")
 
     def test_clu023_cni_directory_on_a_node(self):

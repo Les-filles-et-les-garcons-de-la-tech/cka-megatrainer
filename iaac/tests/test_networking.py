@@ -9,12 +9,14 @@ import unittest
 from pathlib import Path
 
 from lib import ENV, WORKER, ClusterTest, answer, final_file, node, prefill, sh
+from lib import run_pod as lib_run_pod
 
 NO_TTY = lambda cmd: cmd.replace(" -it ", " -i ")  # noqa: E731  # the tests have no terminal
 
 
-def run_pod(cmd):
-    return sh(NO_TTY(cmd), timeout=120)
+def run_pod(cmd, expect=None):
+    # 4 minutes: the first run of an image includes its pull, slow on a busy or rootless host
+    return lib_run_pod(cmd, expect=expect, timeout=240)
 
 
 def pod_ip(name, ns):
@@ -126,7 +128,7 @@ spec:
         self.cleanup_cmd("kubectl delete svc billing -n payments")
         self.answer_ok("NET-020", "s1")
         self.assertEqual(self.ok("kubectl get svc billing -n payments -o jsonpath='{.spec.clusterIP}'").out.strip("'"), "")
-        res = run_pod(answer("NET-020", "s2"))
+        res = run_pod(answer("NET-020", "s2"), expect="canonical name")
         self.assertIn("canonical name = billing.partner.example.com", res.out)
 
 
@@ -244,6 +246,9 @@ class ClusterDNSAndAddresses(ClusterTest):
         original = json.loads(self.ok("kubectl get cm coredns -n kube-system -o json").out)["data"]["Corefile"]
         self.assertGreater(original.count("\n"), 5)  # real newlines
         self.assertIn("corp.example", final_file("NET-017", "s2"))
+        # cleanups run in reverse: restore the Corefile, restart CoreDNS, then WAIT for it, or the
+        # next tests query a DNS that is restarting (nslookup prints nothing)
+        self.cleanup_cmd("kubectl rollout status deployment coredns -n kube-system --timeout=85s")
         self.cleanup_cmd("kubectl rollout restart deployment coredns -n kube-system")
         self.addCleanup(lambda: sh("kubectl -n kube-system patch cm coredns --type=merge -p "
                                    + shlex.quote(json.dumps({"data": {"Corefile": original}}))))

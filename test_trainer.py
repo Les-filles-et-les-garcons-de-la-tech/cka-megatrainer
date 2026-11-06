@@ -46,6 +46,18 @@ class Database(unittest.TestCase):
         with self.assertRaises(ValueError):
             t.validate_question(q, DOMAINS, set())
 
+    def test_pedagogy_fields_required_and_typed(self):
+        for key in ("docs", "stakes", "analogy"):  # --validate and the tests must agree
+            q = copy.deepcopy(BY_ID["NET-001"])
+            del q[key]
+            with self.assertRaises(ValueError, msg=key):
+                t.validate_question(q, DOMAINS, set())
+        for bad in ("https://kubernetes.io/docs/", ["https://kubernetes.io/docs/"], []):
+            q = copy.deepcopy(BY_ID["NET-001"])
+            q["docs"] = bad  # a malformed file must give a clean error, not an AttributeError
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                t.validate_question(q, DOMAINS, set())
+
     def test_bad_docs_rejected(self):
         q = copy.deepcopy(BY_ID["NET-001"])
         q["docs"] = [{"title": "no url"}]
@@ -205,6 +217,79 @@ class Finale(unittest.TestCase):
         self.assertEqual(info["pods"][0][2], "Error")
 
 
+class FakeSound:
+    enabled, player, music_on = True, ["pw-play"], True
+    status = "MUSIC ON"
+
+    def __init__(self):
+        self.calls = []
+
+    def set_music(self, on):
+        self.calls.append(("music", on))
+
+    def set_stereo(self, on):
+        self.calls.append(("stereo", on))
+
+
+class Options(unittest.TestCase):
+    def setUp(self):
+        saved = dict(t.SETTINGS)
+        self.addCleanup(lambda: (t.SETTINGS.clear(), t.SETTINGS.update(saved)))
+
+    def test_levels_are_nested_and_hard_is_everything(self):
+        easy, medium, hard = (t.at_level(QUESTIONS, lv) for lv in ("easy", "medium", "hard"))
+        self.assertLess(len(easy), len(medium))
+        self.assertLess(len(medium), len(hard))
+        self.assertEqual(len(hard), len(QUESTIONS))
+        self.assertTrue({q["id"] for q in easy} <= {q["id"] for q in medium})
+
+    def test_every_level_fills_a_20_question_exam_with_variety(self):
+        need = t.exam_plan(DOMAINS, t.EXAM_MAX)
+        for lv in t.LEVELS:
+            pool = t.at_level(QUESTIONS, lv)
+            for d, k in need.items():  # 1.5x the share, so two EASY exams are not the same
+                have = sum(q["domain"] == d for q in pool)
+                self.assertGreaterEqual(have, -(-3 * k // 2), (lv, d, have, k))
+
+    def test_global_budget(self):
+        self.assertEqual(t.global_budget(QUESTIONS[:3], exam=True), 120 * 60)
+        steps = sum(min(s.get("time_limit", t.MAX_TIME), t.MAX_TIME)
+                    for q in QUESTIONS[:3] for _, s in t.correct_path(q))
+        self.assertEqual(t.global_budget(QUESTIONS[:3], exam=False), steps)
+
+    def test_option_rows_change_settings_and_sound(self):
+        snd = FakeSound()
+        rows = {r["label"]: r for r in t.option_rows(QUESTIONS, snd)}
+        self.assertEqual(list(rows), ["MODE", "TIMER", "MUSIC", "SOUND"])  # LEVEL is on the title menu
+        for label, value, key, expected in (("MODE", "LEARN", "learn", True), ("TIMER", "GLOBAL", "timer", "global"),
+                                            ("SOUND", "STEREO", "stereo", True)):
+            rows[label]["on_change"](value)
+            self.assertEqual(t.SETTINGS[key], expected, label)
+        rows["MUSIC"]["on_change"]("OFF")
+        self.assertEqual(snd.calls, [("stereo", True), ("music", False)])
+        for row in rows.values():  # every value explains itself on the screen
+            self.assertEqual(set(row["hints"]), set(row["values"]), row["label"])
+
+    def test_status_line_shows_the_options(self):
+        t.SETTINGS.update(learn=True, timer="global", level="easy", stereo=True)
+        line = t.options_status(FakeSound())
+        for part in ("LEARN", "GLOBAL TIMER", "STEREO", "MUSIC ON"):
+            self.assertIn(part, line)
+
+    def test_clock_text(self):
+        self.assertEqual(t.clock_text(7200), "120:00")
+        self.assertEqual(t.clock_text(61.9), "1:01")
+        self.assertEqual(t.clock_text(-3), "0:00")
+
+    def test_unreached_questions_count_as_failed(self):
+        played = {"id": "CLU-001", "domain": "cluster", "points": 300, "solved": True,
+                  "steps": [{"ok": True, "time": 5.0}] * 3}
+        unreached = {"id": "CLU-002", "domain": "cluster", "points": 0, "solved": False, "steps": [],
+                     "unreached": True}
+        info = t.finale_info([played, unreached], QUESTIONS, DOMAINS)
+        self.assertEqual((info["unreached"], info["percent"]), (1, 50))  # 3 of 6 steps
+
+
 class PasteDetection(unittest.TestCase):
     def test_typing_is_not_paste(self):
         self.assertFalse(t.is_paste(["k"]))
@@ -249,6 +334,26 @@ class ScreenFit(unittest.TestCase):
                 lines = self.body(q, s, 38, 100)
                 self.assertNotIn("│ …", lines, q["id"])
                 self.assertIn(t.expand([(q["scenario"], 0)], 98)[0][0], lines, q["id"])
+
+
+class LearnTag(unittest.TestCase):
+    """A learn-mode result (answers shown) must never pass for a real one."""
+
+    def setUp(self):
+        t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "bold", "dim", "rev", "normal")})
+        self.addCleanup(t.SETTINGS.update, learn=False)
+        q = BY_ID["CLU-002"]
+        self.results = [{"id": q["id"], "domain": q["domain"], "points": 0, "solved": False,
+                         "steps": [{"ok": False, "time": 3.0}]}]
+
+    def test_finale_and_summary_tagged_only_in_learn_mode(self):
+        for learn in (False, True):
+            t.SETTINGS["learn"] = learn
+            self.assertEqual(t.finale_info(self.results, QUESTIONS, DOMAINS)["learn"], learn)
+            text = [x[0] for x in t.summary_lines(self.results, DOMAINS)]
+            self.assertEqual(any("Learn mode" in x for x in text), learn)
+            replay = next(x for x in text if "Replay them with" in x)
+            self.assertEqual("--learn" in replay, learn)  # replaying keeps the mode
 
 
 class LearnMode(unittest.TestCase):

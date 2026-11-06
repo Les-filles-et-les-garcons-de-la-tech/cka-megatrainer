@@ -72,6 +72,33 @@ class Chiptune(unittest.TestCase):
         self.assertEqual(retro.pod_name("storage"), retro.pod_name("storage"))
         self.assertRegex(retro.pod_name("storage"), r"^storage-[a-z0-9]{5}$")
 
+    def test_stereo_set_is_two_channels(self):
+        left, right = retro.render_sfx_stereo([("C6", 0.05), ("G6", 0.1)])
+        self.assertEqual(len(left), len(right))
+        self.assertNotEqual(left, right)  # panned and echoed, not a copied mono
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "x.wav"
+            retro.write_wav(path, left, right)
+            with wave.open(str(path)) as wf:
+                self.assertEqual(wf.getnchannels(), 2)
+        self.assertTrue({"boom_l", "boom_r"} <= set(retro.STEREO) and set(retro.SFX) <= set(retro.STEREO))
+
+    def test_harmony_stays_in_key(self):
+        for m in range(48, 84):
+            if m % 12 in retro.SCALE or m % 12 == 8:
+                self.assertIn(m - retro.third_below(m), (3, 4), m)
+                self.assertTrue(retro.third_below(m) % 12 in retro.SCALE, m)
+
+    def test_boom_follows_the_burst_in_stereo(self):
+        s = retro.Sound(enabled=False)
+        played = []
+        s._spawn = played.append
+        s.play("boom", pan=0.1)
+        s.stereo = True
+        for pan in (0.1, 0.5, 0.9):
+            s.play("boom", pan=pan)
+        self.assertEqual(played, ["boom", "boom_l", "boom", "boom_r"])
+
     def test_silent_and_missing_player_degrade(self):
         self.assertEqual(retro.Sound(enabled=False).status, "SOUND OFF")
         with mock.patch.object(retro.shutil, "which", return_value=None):

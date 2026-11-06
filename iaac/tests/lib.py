@@ -122,6 +122,34 @@ def _cleanup():
         sh("kubectl delete namespace " + " ".join(_created) + " --wait=true --timeout=150s", timeout=170)
 
 
+ATTACH_BANNER = "If you don't see a command prompt"
+
+
+def run_pod(cmd, expect=None, timeout=240):
+    """Run a game answer of the form `kubectl run NAME --rm -i[t] ... -- COMMAND` (no TTY here).
+
+    kubectl loses the container's output when the container exits before kubectl attaches (seen
+    when images are cached and the command is quick, e.g. nslookup). The exact command still ran
+    (its exit code is kept), so when `expect` is missing from an output that holds only kubectl's
+    attach banner, the same Pod is replayed detached and its logs are read instead."""
+    res = sh(cmd.replace(" -it ", " -i "), timeout=timeout)
+    if expect is None or expect in res.out or ATTACH_BANNER not in res.out:
+        return res
+    name = re.search(r"kubectl run (\S+)", cmd).group(1)
+    ns = re.search(r"(?:-n|--namespace)[= ](\S+)", cmd)
+    ns = f"-n {ns.group(1)}" if ns else ""
+    detached = re.sub(r" --rm\b| -it?\b", "", cmd)
+    sh(f"kubectl delete pod {name} {ns} --ignore-not-found --wait=true")
+    started = sh(detached, timeout=timeout)
+    end = time.time() + timeout
+    while time.time() < end and sh(f"kubectl get pod {name} {ns} -o jsonpath='{{.status.phase}}'"
+                                   ).out.strip("'") not in ("Succeeded", "Failed"):
+        time.sleep(2)
+    logs = sh(f"kubectl logs {name} {ns}")
+    sh(f"kubectl delete pod {name} {ns} --ignore-not-found --wait=false")
+    return Result(res.rc, f"{res.out}\n[replayed detached: {started.out}]\n{logs.out}")
+
+
 class ClusterTest(unittest.TestCase):
     """Skipped when the cluster is not there (run `iaac/cluster.sh up`)."""
 

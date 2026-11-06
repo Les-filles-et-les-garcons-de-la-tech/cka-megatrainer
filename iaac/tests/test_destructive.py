@@ -38,13 +38,13 @@ class StaticPodBreakFix(ClusterTest):
     def break_manifest(self, name, old, new):
         """Edit a static Pod manifest of the control plane; the original is restored at the end."""
         path = f"{MANIFESTS}/{name}.yaml"
-        self.assertTrue(node(f"cp {path} /root/{name}.orig"))
+        self.assertTrue(node(f"cp -n {path} /root/{name}.orig"))
         self.addCleanup(self.restore_manifest, name)
         res = node(f"sed -i 's#{old}#{new}#' {path} && grep -c -- '{new}' {path}")
         self.assertTrue(res, f"could not break {name}: {res}")
 
     def restore_manifest(self, name):
-        node(f"cp /root/{name}.orig {MANIFESTS}/{name}.yaml")
+        node(f"cp /root/{name}.orig {MANIFESTS}/{name}.yaml && rm -f /root/{name}.orig")
         wait_api(True, 300)
 
     def container_id(self, name):
@@ -138,14 +138,14 @@ def wait_for_node(cmd, expect, timeout):
 @unittest.skipUnless(os.environ.get("DESTRUCTIVE"), "set DESTRUCTIVE=1: these tests break and repair the cluster")
 class KubeletAndProxy(ClusterTest):
     def test_trb022_kubelet_with_a_missing_config_file(self):
-        self.cleanup_cmd(f"podman exec {WORKER} sh -c 'systemctl daemon-reload; systemctl restart kubelet'")
         unit = node(answer("TRB-022", "s2").replace("sudo ", ""), which=WORKER).out      # prints unit + drop-ins
         path = re.search(r"# (/\S*10-kubeadm\.conf)", unit)
         self.assertTrue(path, unit)
         path = path.group(1)
-        self.addCleanup(lambda: node(f"cp /root/10-kubeadm.conf.orig {path}; systemctl daemon-reload; systemctl restart kubelet",
+        self.addCleanup(lambda: node(f"cp /root/10-kubeadm.conf.orig {path} && rm -f /root/10-kubeadm.conf.orig; "
+                                     "systemctl daemon-reload; systemctl restart kubelet",
                                      which=WORKER))
-        node(f"cp {path} /root/10-kubeadm.conf.orig", which=WORKER)
+        node(f"cp -n {path} /root/10-kubeadm.conf.orig", which=WORKER)
         self.assertIn("--config=/var/lib/kubelet/config.yaml", unit)
         node(f"sed -i 's#--config=/var/lib/kubelet/config.yaml#--config=/var/lib/kubelet/missing.yaml#' {path}", which=WORKER)
         self.assertTrue(node(answer("TRB-022", "s4").replace("sudo ", ""), which=WORKER))

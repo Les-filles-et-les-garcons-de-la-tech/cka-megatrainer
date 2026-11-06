@@ -32,11 +32,12 @@ access. With podman on a Mac, the podman machine needs about 6 GB of memory.
 
 ```bash
 make iaac-up              # about 2 minutes the first time (downloads the node image)
-make iaac-test            # run everything that is safe: about 15 minutes
+make iaac-test            # the default suite: about 15 minutes, leaves your machine unchanged
 make iaac-test ARGS=test_storage                       # one file
 make iaac-test ARGS=test_storage.Reclaim               # one class
 make iaac-test ARGS=test_storage.Reclaim.test_sto006_retain_keeps_the_volume_when_the_claim_goes
 make iaac-test-destructive                              # also break and repair the control plane
+HOST_AFFECTING=1 make iaac-test ARGS=test_cluster      # also run CLU-012 for real (see below)
 make iaac-down            # delete the cluster
 make iaac-coverage        # which tests exercise which question (no cluster needed)
 ```
@@ -50,10 +51,20 @@ make iaac-coverage        # which tests exercise which question (no cluster need
   not read or changed.
 - Everything downloaded stays in `iaac/.bin/` (kind, and a `kubectl` of the cluster's own version,
   both checksum-verified) and `iaac/.helm/` (Helm's repositories). Both are git-ignored. Your
-  system `kind`, `kubectl` and Helm configuration are not used or changed.
+  system `kind` and `kubectl` are not used, and your Helm configuration is not changed. The `helm`
+  **binary** is the one installed on your system: without it the Helm tests are skipped.
+- Network access is needed: kind, kubectl, the node image, the add-ons and test images (nginx,
+  busybox...) are downloaded.
 - The tests create namespaces named after the questions (`shop`, `prod`, `team-a`…) and delete them
   when they finish. `KEEP=1 make iaac-test` keeps them so you can look around with
   `iaac/.bin/kubectl --kubeconfig iaac/.kubeconfig …`.
+- **The tests change the test cluster, never your machine.** Even the default suite drains the
+  worker, stops its kubelet (TRB-002), runs `kubeadm upgrade node` (CLU-002) and prunes node images
+  (TRB-026), always on the disposable `cka-test` cluster.
+- **One exception is opt-in: `HOST_AFFECTING=1`.** kind nodes are containers that share your
+  machine's Linux kernel, so CLU-012's answers (`swapoff -a`, `modprobe -a overlay br_netfilter`,
+  `sysctl --system`) would act on **your** machine: its swap, kernel modules and kernel settings.
+  By default the test only checks them without effect (`modprobe --dry-run`, a read of the sysctl).
 - The cluster is disposable. If something is left in a strange state, `make iaac-down iaac-up`.
 
 `K8S_VERSION` (default `v1.37.0`), `KIND_VERSION` and `CLUSTER` (default `cka-test`) can be
