@@ -103,19 +103,20 @@ troubleshooting-x4k2p   1/3     CrashLoopBackOff  2         6m40s
 
 ### Options
 
-**OPTIONS**, on the title menu, opens a screen of four settings (UP/DOWN to choose, LEFT/RIGHT or Enter
+**OPTIONS**, on the title menu, opens a screen of five settings (UP/DOWN to choose, LEFT/RIGHT or Enter
 to change, Q to go back). They apply at once and reset at the next launch; a line under the title
 menu always shows the current ones.
 
 | Option | Values | Effect |
 |---|---|---|
 | MODE | **EXAM** / LEARN | LEARN shows the answers (see [Learn mode](#learn-mode)) |
+| AUTOCOMPLETE | **OFF** / ON | ON: Tab completes commands, resource names, namespaces and flags like kubectl's bash completion in the exam, from the words of the question's own commands (a unique match is completed, several are listed). Not in YAML files, as in the exam |
 | TIMER | **BY QUESTION** / GLOBAL | GLOBAL: one countdown for the whole session, like the CKA: **120 minutes** for the CKA EXAM, the sum of its steps' own times for a shorter round. When it runs out, the session ends and the questions not reached count as failed |
 | MUSIC | **ON** / OFF | the themes of the title, level and finale screens; sound effects stay |
 | SOUND | **MONO** / STEREO | STEREO: the same original tunes arranged wide, with a harmony, arpeggios bouncing between the speakers, echoes, and fireworks heard where they burst (rendered once, about 3 s, then cached) |
 
-Defaults in bold. The same settings exist as flags: `--learn`, `--silent`, `--timer global`,
-`--stereo`.
+Defaults in bold. The same settings exist as flags: `--learn`, `--autocomplete`, `--silent`,
+`--timer global`, `--stereo`.
 
 **LEVEL** is on the title menu itself, just before HOW TO PLAY: select it and press LEFT/RIGHT (or
 Enter) to switch between **EASY** (everyday tasks, 34 questions), **MEDIUM** (easy + medium, 78) and
@@ -189,6 +190,7 @@ make help                                # all targets
 ./cka_trainer.py --exam --timer global       # the real format: one 120-minute clock
 ./cka_trainer.py --level easy                # everyday tasks only (medium: + medium; hard: all)
 ./cka_trainer.py --stereo                    # stereo sound, more voices
+./cka_trainer.py --autocomplete              # Tab completion, like kubectl's in the exam
 ./cka_trainer.py --silent                    # no sound
 ./cka_trainer.py --allow-paste               # practise without the paste blocker
 ./cka_trainer.py --list                      # list question ids

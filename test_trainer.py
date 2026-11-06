@@ -260,8 +260,10 @@ class Options(unittest.TestCase):
     def test_option_rows_change_settings_and_sound(self):
         snd = FakeSound()
         rows = {r["label"]: r for r in t.option_rows(QUESTIONS, snd)}
-        self.assertEqual(list(rows), ["MODE", "TIMER", "MUSIC", "SOUND"])  # LEVEL is on the title menu
+        self.assertEqual(list(rows), ["MODE", "AUTOCOMPLETE", "TIMER", "MUSIC", "SOUND"])  # LEVEL: title menu
+        self.assertEqual(rows["AUTOCOMPLETE"]["values"][rows["AUTOCOMPLETE"]["index"]], "OFF")  # off by default
         for label, value, key, expected in (("MODE", "LEARN", "learn", True), ("TIMER", "GLOBAL", "timer", "global"),
+                                            ("AUTOCOMPLETE", "ON", "autocomplete", True),
                                             ("SOUND", "STEREO", "stereo", True)):
             rows[label]["on_change"](value)
             self.assertEqual(t.SETTINGS[key], expected, label)
@@ -288,6 +290,52 @@ class Options(unittest.TestCase):
                      "unreached": True}
         info = t.finale_info([played, unreached], QUESTIONS, DOMAINS)
         self.assertEqual((info["unreached"], info["percent"]), (1, 50))  # 3 of 6 steps
+
+
+class Autocomplete(unittest.TestCase):
+    WORDS = {"kubectl", "drain", "describe", "delete", "--ignore-daemonsets", "--image=", "--image=busybox:1.28",
+             "--verb=", "--verb=get,list", "--verbs=", "--verbs=get,list", "nginx-7c5ddbdf54-x2k9p", "/opt/backup/"}
+
+    def tab(self, line, x=None):
+        return t.complete(line, len(line) if x is None else x, self.WORDS)
+
+    def test_unique_match_completes_with_a_space(self):
+        self.assertEqual(self.tab("kubectl dr")[:2], ("kubectl drain ", 14))
+        self.assertEqual(self.tab("kubectl describe pod ng")[0], "kubectl describe pod nginx-7c5ddbdf54-x2k9p ")
+
+    def test_flag_first_then_its_value(self):
+        self.assertEqual(self.tab("kubectl run t --ima")[0], "kubectl run t --image=")  # no space after '='
+        self.assertEqual(self.tab("kubectl run t --image=b")[0], "kubectl run t --image=busybox:1.28 ")
+
+    def test_ambiguous_extends_the_common_prefix_and_lists(self):
+        line, x, matches = self.tab("kubectl create role r --ve")
+        self.assertEqual(line, "kubectl create role r --verb")
+        self.assertEqual(matches, ["--verb=", "--verb=get,list", "--verbs=", "--verbs=get,list"])
+        self.assertEqual(self.tab("kubectl de")[2], ["delete", "describe"])
+
+    def test_nothing_to_complete(self):
+        for line in ("kubectl zz", "kubectl ", ""):
+            self.assertEqual(self.tab(line), (line, len(line), []))
+        self.assertEqual(self.tab("cp x /opt/b")[0], "cp x /opt/backup/")  # no space after '/'
+
+    def test_completion_in_the_middle_of_a_line(self):
+        line, x, _ = self.tab("kubectl dr node01", x=10)
+        self.assertEqual((line, x), ("kubectl drain node01", 13))  # no double space before node01
+
+    def test_words_come_from_the_variants_and_tab_is_2_spaces_without_them(self):
+        step = BY_ID["CLU-002"]["steps"]["s1"]
+        words = t.completion_words(step)
+        self.assertIn("--ignore-daemonsets", words)
+        self.assertIn("cordon", words)  # traps too: all variants are on screen
+        self.assertEqual(t.completion_words(BY_ID["WRK-001"]["steps"]["s2"]), set())  # edit step: no YAML
+        ed = t.Editor("kubectl dr")
+        ed.handle("\t", True)
+        self.assertEqual(ed.text(), "kubectl dr  ")  # AUTOCOMPLETE OFF
+        ed = t.Editor("kubectl dr")
+        ed.handle("\t", True, words=words)
+        self.assertEqual(ed.text(), "kubectl drain ")
+        ed.handle("x", True, words=words)
+        self.assertEqual(ed.matches, [])
 
 
 class PasteDetection(unittest.TestCase):

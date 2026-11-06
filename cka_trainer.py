@@ -41,7 +41,7 @@ PASTE_START, PASTE_END = -200, -201  # bracketed-paste markers (ints: the editor
 
 A = {}  # curses attributes, filled by init_colors()
 SETTINGS = {"allow_paste": False, "silent": False, "learn": False,  # OPTIONS screen + flags
-            "timer": "question", "level": "hard", "stereo": False}
+            "timer": "question", "level": "hard", "stereo": False, "autocomplete": False}
 LEVELS = {"easy": 1, "medium": 2, "hard": 3}  # a level plays the questions up to its difficulty
 EXAM_SECONDS = 120 * 60  # the CKA: 2 hours for the whole exam
 PRIME_OK = "Right. Before you move on: say why each of the others fails."
@@ -263,12 +263,44 @@ def points_for(ok, elapsed, limit):
 # Multiline editor
 # --------------------------------------------------------------------------
 
+def completion_words(step):
+    """AUTOCOMPLETE candidates: the words of the step's own variants (every option and alias;
+    all are on screen, so nothing is revealed), plus each '--flag=' alone, completed first."""
+    words = set()
+    for o in step.get("options", []):
+        for form in ([o["cmd"], *o.get("aliases", [])] if "cmd" in o else []):
+            for w in form.split():
+                words.add(w)
+                if w.startswith("-") and "=" in w:
+                    words.add(w.split("=", 1)[0] + "=")
+    return words
+
+
+def complete(line, x, words):
+    """bash-like Tab on the word before the cursor: a unique match is completed (plus a space,
+    except after '=' or '/'); several matches extend to their common prefix and are returned
+    for display. Returns (line, x, matches)."""
+    before = line[:x]
+    word = "" if not before or before[-1].isspace() else before.split()[-1]
+    matches = sorted(w for w in words if word and w.startswith(word) and w != word)
+    if not matches:
+        return line, x, []
+    if len(matches) == 1:
+        add = matches[0][len(word):]
+        if not add.endswith(("=", "/")) and not line[x:].startswith(" "):
+            add += " "
+        return before + add + line[x:], x + len(add), []
+    add = os.path.commonprefix(matches)[len(word):]
+    return before + add + line[x:], x + len(add), matches
+
+
 class Editor:
     def __init__(self, text=""):
         self.lines = text.split("\n") if text else [""]
         self.y = len(self.lines) - 1
         self.x = len(self.lines[-1])
         self.scroll = 0
+        self.matches = []  # AUTOCOMPLETE: the choices of an ambiguous Tab, until the next key
 
     def text(self):
         return "\n".join(self.lines)
@@ -304,10 +336,12 @@ class Editor:
         elif self.y + 1 < len(self.lines):
             self.lines[self.y] = line + self.lines.pop(self.y + 1)
 
-    def handle(self, key, enter_submits):
-        """Apply one key. Returns 'submit', 'skip' or None."""
+    def handle(self, key, enter_submits, words=None):
+        """Apply one key. Returns 'submit', 'skip' or None.
+        words: AUTOCOMPLETE candidates; Tab then completes instead of inserting 2 spaces."""
         if key == curses.KEY_ENTER:
             key = "\n"
+        self.matches = []
         if isinstance(key, str):
             if key in ("\n", "\r"):
                 if enter_submits and not self.lines[self.y][:self.x].endswith("\\"):
@@ -319,6 +353,8 @@ class Editor:
                 return "skip"
             elif key in ("\x7f", "\b"):
                 self._backspace()
+            elif key == "\t" and words is not None:
+                self.lines[self.y], self.x, self.matches = complete(self.lines[self.y], self.x, words)
             elif key == "\t":
                 self._insert("  ")
             elif key == "\x15":  # Ctrl+U: delete to start of line
@@ -642,12 +678,18 @@ def draw_step(stdscr, title, q, step, options, ed, remaining, limit, warn=False,
         put(stdscr, top + 1 + i, ex + 2, text)
 
     if step["type"] == "command":
-        hint = "Enter: submit   \\+Enter: new line   Ctrl+X: skip   Ctrl+C: quit"
+        tab = "Tab: complete   " if SETTINGS["autocomplete"] else ""
+        hint = f"Enter: submit   {tab}\\+Enter: new line   Ctrl+X: skip   Ctrl+C: quit"
     else:
         hint = "Ctrl+D: submit   Enter: new line   Tab: 2 spaces   PgUp/PgDn: options   Ctrl+X: skip"
     if warn:
         put(stdscr, h - 1, 0, "⛔ Paste blocked — type it yourself, that is the whole point!",
             A["red"] | A["bold"])
+    elif ed.matches:  # an ambiguous Tab: the choices, like bash's double Tab
+        listing = "  ".join(ed.matches)
+        if len(listing) > w - 6:
+            listing = listing[:w - 8] + " …"
+        put(stdscr, h - 1, 0, "Tab: " + listing, A["cyan"] | A["bold"])
     else:
         put(stdscr, h - 1, 0, hint, A["dim"])
     try:
@@ -667,6 +709,7 @@ def run_step(stdscr, title, q, step, options, clock=None):
     start = time.monotonic()
     pastes, in_paste, quarantine_until, warn_until = 0, False, 0.0, 0.0
     view = {"panel": 0}  # scroll position of the snippet options
+    words = completion_words(step) if SETTINGS["autocomplete"] and step["type"] == "command" else None
     while True:
         now = time.monotonic()
         elapsed = now - start
@@ -703,7 +746,7 @@ def run_step(stdscr, title, q, step, options, clock=None):
                 view["panel"] += 5 if key == curses.KEY_NPAGE else -5
                 view["panel"] = max(0, view["panel"])
                 continue
-            action = ed.handle(key, enter_submits=step["type"] == "command")
+            action = ed.handle(key, enter_submits=step["type"] == "command", words=words)
             if action:
                 return ed.text(), time.monotonic() - start, action, pastes
 
@@ -895,6 +938,8 @@ def rules_lines():
         ("OPTIONS (title menu)", b),
         ("  MODE   EXAM, or LEARN: the right answer is marked, every answer links to the", n),
         ("         Kubernetes docs, and the results are tagged LEARN MODE (also: --learn).", n),
+        ("  AUTOCOMPLETE  OFF, or ON: Tab completes commands, names and flags, like kubectl's", n),
+        ("         completion in the exam (from the question's commands; not in YAML files).", n),
         ("  TIMER  BY QUESTION (a countdown per step) or GLOBAL: one clock for the session,", n),
         ("         120 min for the CKA EXAM. When it runs out, the rest counts as failed.", n),
         ("  MUSIC  ON / OFF.   SOUND  MONO, or STEREO with harmonies, echoes and wide fireworks.", n),
@@ -967,6 +1012,11 @@ def option_rows(questions, sound):
          "hints": {"EXAM": "Like the real exam: the answers are not shown.",
                    "LEARN": "The right answer is marked and every answer links to the Kubernetes docs. "
                             "Results are tagged LEARN MODE."}},
+        {"label": "AUTOCOMPLETE", "values": ["OFF", "ON"], "index": int(SETTINGS["autocomplete"]),
+         "on_change": setter("autocomplete", {"OFF": False, "ON": True}),
+         "hints": {"OFF": "Type every character, Tab inserts 2 spaces.",
+                   "ON": "Tab completes commands, names and flags like kubectl's completion in the "
+                         "exam, from the words of the question's commands. Not in YAML files."}},
         {"label": "TIMER", "values": ["BY QUESTION", "GLOBAL"], "index": int(SETTINGS["timer"] == "global"),
          "on_change": setter("timer", {"BY QUESTION": "question", "GLOBAL": "global"}),
          "hints": {"BY QUESTION": "Each step has its own countdown.",
@@ -992,6 +1042,7 @@ def options_status(sound):
     """One line under the title menu: the current OPTIONS."""
     return "  ·  ".join([
         "LEARN" if SETTINGS["learn"] else "EXAM",
+        *(["AUTOCOMPLETE"] if SETTINGS["autocomplete"] else []),
         "GLOBAL TIMER" if SETTINGS["timer"] == "global" else "TIMER BY QUESTION",
         "STEREO" if SETTINGS["stereo"] else "MONO",
         sound.status])
@@ -1154,6 +1205,8 @@ def main(argv=None):
                     help="question: a countdown per step (default); global: one clock for the session "
                          "(120 min for a CKA exam)")
     ap.add_argument("--stereo", action="store_true", help="stereo sound with more voices")
+    ap.add_argument("--autocomplete", action="store_true",
+                    help="Tab completes commands, names and flags, like kubectl's completion in the exam")
     ap.add_argument("--theme", choices=retro.THEMES, default="retro",
                     help="retro: vivid RGB on black (default); soft: the terminal's own colours")
     ap.add_argument("--validate", action="store_true", help="check the database and exit")
@@ -1162,7 +1215,7 @@ def main(argv=None):
     SETTINGS["allow_paste"] = args.allow_paste
     SETTINGS["silent"] = args.silent
     SETTINGS["learn"] = args.learn
-    SETTINGS.update(level=args.level, timer=args.timer, stereo=args.stereo)
+    SETTINGS.update(level=args.level, timer=args.timer, stereo=args.stereo, autocomplete=args.autocomplete)
     retro.set_theme(args.theme)
 
     try:
