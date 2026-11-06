@@ -543,6 +543,7 @@ def step_body(q, step, options, width, budget):
         context = expand([("│ " + ln, A["dim"], True) for ln in as_text(step["context"]).split("\n")], width)
     tail = [("", 0)] + expand([(step["prompt"], A["cyan"] | A["bold"])], width)
     if step["type"] == "command":
+        tail.append(("", 0))  # a breath between the question and its options
         for label, o in zip(LABELS, options):
             if SETTINGS["learn"] and o.get("correct"):  # learn mode: the answer is shown
                 tail += expand([(f"✔ {label}) {o['cmd']}", A["green"] | A["bold"], True)], width)
@@ -749,7 +750,7 @@ def feedback_lines(step, options, text, res, elapsed, pts, pastes=0, docs=None, 
     if pastes:
         lines.append((f"⛔ {pastes} paste attempt(s) blocked", A["red"]))
     lines.append(("", 0))
-    lines += [("Question:", A["cyan"] | A["bold"]), ("  " + step["prompt"], A["cyan"])]
+    lines += [("Question:", A["cyan"] | A["bold"]), ("", 0), ("  " + step["prompt"], A["cyan"])]
     if step.get("context"):  # the output the options refer to
         lines += [("  │ " + ln, A["normal"], True) for ln in as_text(step["context"]).split("\n")]
     lines.append(("", 0))
@@ -802,17 +803,17 @@ def feedback_lines(step, options, text, res, elapsed, pts, pastes=0, docs=None, 
 
     if step.get("explain"):
         if res["ok"]:  # same form as the traps: the answer, then why it is right
-            lines += [("Why this is right:", A["green"] | A["bold"])]
+            lines += [("Why this is right:", A["green"] | A["bold"]), ("", 0)]
             lines += variant_lines(LABELS[options.index(correct_option(step))], correct_option(step),
                                    A["green"], why=step["explain"], text_attr=A["green"] | A["bold"])
         else:
-            lines += [("Why:", A["cyan"] | A["bold"]), ("  " + step["explain"], A["normal"])]
+            lines += [("Why:", A["cyan"] | A["bold"]), ("", 0), ("  " + step["explain"], A["normal"])]
     if not res["ok"] or SETTINGS["learn"]:  # learn mode also explains the traps you avoided
         others = [(LABELS[i], o) for i, o in enumerate(options)
                   if not o.get("correct") and o is not res.get("option")]
         if others:
             head = "The other traps:" if not res["ok"] else "Why not the others:"
-            lines += [("", 0), (head, A["yellow"] | A["bold"])]
+            lines += [("", 0), (head, A["yellow"] | A["bold"]), ("", 0)]
             for lab, o in others:
                 lines += variant_lines(lab, o, A["yellow"])
     return lines + docs_lines(docs)

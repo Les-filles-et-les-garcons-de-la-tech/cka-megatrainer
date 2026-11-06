@@ -467,6 +467,20 @@ class Pedagogy(unittest.TestCase):
                     first = next(ln for ln in nxt if ln.strip().startswith("→"))
                     self.assertEqual(first.strip(), "→ " + o["why"], (q["id"], t.LABELS[i]))
 
+    def test_blank_line_under_each_section_heading(self):
+        q = BY_ID["CLU-001"]
+        step = q["steps"][q["start"]]
+        good = t.correct_option(step)["cmd"]
+        for learn, typed, heads in ((True, good, ("Question:", "Why this is right:", "Why not the others:")),
+                                    (False, "kubectl get pods", ("Question:", "Why:", "The other traps:"))):
+            t.SETTINGS["learn"] = learn
+            res = t.judge(step, typed, "submit")
+            text = [x[0] for x in t.feedback_lines(step, step["options"], typed, res, 3.0, 0)]
+            for head in heads:
+                i = text.index(head)
+                self.assertEqual(text[i + 1], "", head)   # the blank line under the heading
+                self.assertNotEqual(text[i + 2], "", head)  # then the content, not more space
+
     def test_priming_line_only_in_learn_mode(self):
         self.assertNotIn(t.PRIME_MISS, self.page("kubectl get pods", learn=False))
         self.assertIn(t.PRIME_MISS, self.page("kubectl get pods", learn=True))
