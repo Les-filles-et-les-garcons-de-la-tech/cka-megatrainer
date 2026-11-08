@@ -61,7 +61,7 @@ They have no sound. The game itself plays an original chiptune.
 ## How it plays
 
 1. Each question is a scenario split into **steps**, e.g. generate YAML → fix the file → apply it.
-   **100 questions** cover the whole CKA curriculum, in the exam's proportions (see below).
+   **120 questions** cover the whole CKA curriculum, in the exam's proportions (see below).
 2. **Command step**: options A–D. Type the full command of the one you choose. Typing another
    option's text means choosing it; typos count as wrong, just like in a shell. `k ` is read as `kubectl `.
 3. **Edit step**: a file opens in an editor (e.g. the output of `--dry-run=client -o yaml`) next to
@@ -119,8 +119,8 @@ Defaults in bold. The same settings exist as flags: `--learn`, `--autocomplete`,
 `--timer global`, `--stereo`.
 
 **LEVEL** is on the title menu itself, just before HOW TO PLAY: select it and press LEFT/RIGHT (or
-Enter) to switch between **EASY** (everyday tasks, 34 questions), **MEDIUM** (easy + medium, 78) and
-**HARD** (all 100, node and control-plane repairs included; the default). The question counts of
+Enter) to switch between **EASY** (everyday tasks, 34 questions), **MEDIUM** (easy + medium, 87) and
+**HARD** (all 120, node and control-plane repairs included; the default). The question counts of
 the menu follow at once, and every level can fill a 20-question exam in the CKA proportions. Flag:
 `--level easy`.
 
@@ -232,7 +232,7 @@ Ownership tracking applies to installations made with this version of setup.
 
 ### Single-file version
 
-The whole game (code, 100 questions, sounds) also fits in **one file**, `cka-megatrainer.pyz`
+The whole game (code, 120 questions, sounds) also fits in **one file**, `cka-megatrainer.pyz`
 (about 140 KB), a standard Python zip application:
 
 ```bash
@@ -309,7 +309,7 @@ with your OS, terminal, Python version and what you saw (a screenshot helps). Ev
 Ubuntu 24.04 + GNOME Terminal" is useful.
 
 **Pull requests (merge requests) are welcome**: new questions (the database is meant to grow from
-these 100: keep one question per percent of exam weight), fixes for other platforms, gameplay ideas. See [CONTRIBUTING.md](CONTRIBUTING.md)
+these 120: keep the exam proportions, in batches of 20), fixes for other platforms, gameplay ideas. See [CONTRIBUTING.md](CONTRIBUTING.md)
 for the question format and the checks to run.
 
 ## License

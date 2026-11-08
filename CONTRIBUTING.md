@@ -128,13 +128,13 @@ Rules (`./cka_trainer.py --validate` enforces most of them):
 
   A test checks that every level can still fill a 20-question exam in the CKA proportions, with
   some variety: the easy pool of each domain must hold at least 1.5 times its share.
-- Keep the library in the CKA proportions: **one question per percent of weight** per 100 questions
+- Keep the library in the CKA proportions: **1.2 questions per percent of weight** (120 questions)
   (Troubleshooting 30 %, Cluster Architecture 25 %, Services & Networking 20 %, Workloads &
   Scheduling 15 %, Storage 10 %). The tests check the exact counts: add questions in proportional
-  batches (the smallest exact batch is 20: 6/5/4/3/2) and update `test_hundred_questions_in_cka_proportions`.
+  batches (the smallest exact batch is 20: 6/5/4/3/2) and update `test_library_in_cka_proportions`.
 - **Step by step**: (1) pick the domain and the next free id, e.g. `STO-011`; (2) write the
   question in a fragment file `{"questions": [...]}`, copying the shape above (a first step that
-  generates or inspects, then the fix, then the verification, 2–4 steps); (3) add its `docs`, `stakes` and `analogy`;
+  generates or inspects, then the fix, then the verification, 2–4 steps, up to 5 for a hard question so that every real stage has its step); (3) add its `docs`, `stakes` and `analogy`;
   (4) check it with `tools/validate_fragment.py`; (5) merge it with `tools/merge_questions.py`,
   which also puts `questions.json` in house style; (6) run `make test`, `make check-links`,
   then play it with `./cka_trainer.py --learn --id STO-011` to see that the green check marks

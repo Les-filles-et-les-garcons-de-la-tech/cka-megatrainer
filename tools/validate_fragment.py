@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate a batch of NEW questions (a fragment file) before merging it into questions.json.
 
-Stricter than --validate: id range, domain, 2-4 steps, 3-4 options, explain/tip/recap, command
+Stricter than --validate: id range, domain, 2-5 steps, 3-4 options, explain/tip/recap, command
 length (<= 130), correct command accepted by the judge, share of questions with an edit step.
 
 usage: python3 tools/validate_fragment.py FRAGMENT.json PREFIX FIRST LAST
@@ -37,8 +37,8 @@ for q in qs:
         if k not in q:
             errors.append(f"{qid}: missing '{k}'")
     path_steps = t.correct_path(q)
-    if not 2 <= len(path_steps) <= 4:
-        errors.append(f"{qid}: the solution path must have 2-4 steps (has {len(path_steps)})")
+    if not 2 <= len(path_steps) <= 5:  # hard questions may take 5: one step per real stage
+        errors.append(f"{qid}: the solution path must have 2-5 steps (has {len(path_steps)})")
     if any(s["type"] == "edit" for _, s in path_steps):
         edit_qs += 1
     for sid, s in q["steps"].items():

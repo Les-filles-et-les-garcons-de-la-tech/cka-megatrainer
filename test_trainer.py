@@ -11,10 +11,10 @@ EDIT_STEPS = [(q["id"], s) for q in QUESTIONS for s in q["steps"].values() if s[
 
 
 class Database(unittest.TestCase):
-    def test_hundred_questions_in_cka_proportions(self):
-        self.assertEqual(len(QUESTIONS), 100)
+    def test_library_in_cka_proportions(self):
+        self.assertEqual(len(QUESTIONS), 120)
         counts = {d: sum(q["domain"] == d for q in QUESTIONS) for d in DOMAINS}
-        self.assertEqual(counts, {d: v["weight"] for d, v in DOMAINS.items()})  # 1 question per %
+        self.assertEqual(counts, {d: v["weight"] * 6 // 5 for d, v in DOMAINS.items()})  # 1.2 questions per %
 
     def test_every_question_has_a_tip_and_explained_steps(self):
         for q in QUESTIONS:

@@ -125,6 +125,25 @@ def _cleanup():
 ATTACH_BANNER = "If you don't see a command prompt"
 
 
+def settle_node(name=WORKER, timeout=180):
+    """Before a drain: wait until `name` holds no Pod that drain would refuse for another reason
+    than the one under test: bare Pods (no owner, e.g. local-path helper Pods) and Pods still
+    terminating (a previous test deleted them with --wait=false). Mirror (static) Pods are fine."""
+    import json
+    end = time.time() + timeout
+    while time.time() < end:
+        res = sh(f"kubectl get pods -A --field-selector spec.nodeName={name} -o json")
+        items = json.loads(res.out).get("items", []) if res else []
+        busy = [p["metadata"]["name"] for p in items
+                if p["metadata"].get("deletionTimestamp")
+                or (not p["metadata"].get("ownerReferences")
+                    and "kubernetes.io/config.mirror" not in p["metadata"].get("annotations", {}))]
+        if res and not busy:
+            return
+        time.sleep(2)
+    raise AssertionError(f"{name} still runs bare or terminating Pods: {busy}")
+
+
 def run_pod(cmd, expect=None, timeout=240):
     """Run a game answer of the form `kubectl run NAME --rm -i[t] ... -- COMMAND` (no TTY here).
 
