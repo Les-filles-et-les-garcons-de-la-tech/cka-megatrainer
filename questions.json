@@ -2242,6 +2242,684 @@
       }
     },
     {
+      "id": "CLU-026",
+      "domain": "cluster",
+      "topic": "High availability (kubeadm init with a load balancer)",
+      "difficulty": 3,
+      "title": "Bootstrap an HA control plane",
+      "scenario": "Build an HA cluster: cp1 (192.168.10.11), cp2 and cp3 sit behind the load balancer lb.k8s.lab:6443 (192.168.10.100). On cp1, finish kubeadm-config.yaml (kubeadm.k8s.io/v1beta4) and bootstrap the first control plane so cp2 and cp3 can join later as control planes.",
+      "tip": "HA starts at 'kubeadm init': controlPlaneEndpoint (or --control-plane-endpoint) = the LOAD BALANCER, plus --upload-certs. kubeadm cannot turn a cluster made without an endpoint into an HA one.",
+      "docs": [
+        {"title": "Creating Highly Available Clusters with kubeadm", "url": "https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/high-availability/"},
+        {"title": "kubeadm init", "url": "https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/"}
+      ],
+      "stakes": "Point the endpoint at cp1 and every kubeconfig and node follows cp1: when it dies, so does the cluster.",
+      "analogy": "The endpoint is the switchboard number on business cards: staff can change, the number printed everywhere stays.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "edit",
+          "time_limit": 100,
+          "filename": "kubeadm-config.yaml",
+          "prompt": "Step 1 - Set the shared endpoint of all control planes: type the right line in place of the TODO comment. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: kubeadm.k8s.io/v1beta4",
+            "kind: InitConfiguration",
+            "localAPIEndpoint:",
+            "  advertiseAddress: 192.168.10.11",
+            "  bindPort: 6443",
+            "nodeRegistration:",
+            "  name: cp1",
+            "---",
+            "apiVersion: kubeadm.k8s.io/v1beta4",
+            "kind: ClusterConfiguration",
+            "kubernetesVersion: v1.37.1",
+            "networking:",
+            "  podSubnet: 10.244.0.0/16",
+            "# TODO: the address every node and client uses for the API"
+          ],
+          "target": ["# TODO: the address every node and client uses for the API"],
+          "options": [
+            {"correct": true, "snippet": [
+                "controlPlaneEndpoint: \"lb.k8s.lab:6443\""]},
+            {"why": "That is cp1's own address: every kubeconfig and kubelet would talk to cp1 only. When cp1 fails the cluster is unreachable, and kubeadm cannot change it into HA later.", "snippet": [
+                "controlPlaneEndpoint: \"192.168.10.11:6443\""]},
+            {"why": "2379 is etcd's client port, not the API server's: kubeconfigs and join commands would point at a port where no API answers.", "snippet": [
+                "controlPlaneEndpoint: \"lb.k8s.lab:2379\""]},
+            {"why": "Indented, it becomes networking.controlPlaneEndpoint, an unknown field: kubeadm only warns and the endpoint stays empty (cp1's own address).", "snippet": [
+                "  controlPlaneEndpoint: \"lb.k8s.lab:6443\""]}
+          ],
+          "checks": [
+            {"regex": "^controlPlaneEndpoint:\\s*\\\"?(lb\\.k8s\\.lab|192\\.168\\.10\\.100):6443\\\"?\\s*$", "msg": "Add 'controlPlaneEndpoint: \"lb.k8s.lab:6443\"' at the top level of the ClusterConfiguration."},
+            {"regex": "^  podSubnet: 10\\.244\\.0\\.0/16\\s*$", "msg": "Keep networking.podSubnet 10.244.0.0/16."}
+          ],
+          "forbid": [
+            {"regex": "# TODO", "msg": "The TODO comment is still there - type the line in its place."}
+          ],
+          "recap": "controlPlaneEndpoint: \"lb.k8s.lab:6443\" (the load balancer) in the ClusterConfiguration.",
+          "next": "s2",
+          "explain": "The endpoint is written into every kubeconfig, join command and the API certificate. Set to the load balancer, any control plane can fail while clients keep one stable address. Set to cp1, the cluster is tied to cp1 for good: kubeadm cannot convert it to HA later."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 60,
+          "prompt": "Step 2 - Bootstrap cp1 from that file, and store the shared certificates in the cluster so cp2 and cp3 can fetch them when they join.",
+          "options": [
+            {
+              "cmd": "sudo kubeadm init --config kubeadm-config.yaml --upload-certs",
+              "correct": true,
+              "aliases": [
+                "sudo kubeadm init --config=kubeadm-config.yaml --upload-certs",
+                "kubeadm init --config kubeadm-config.yaml --upload-certs",
+                "sudo kubeadm init --upload-certs --config kubeadm-config.yaml"
+              ],
+              "next": "s3"
+            },
+            {
+              "cmd": "sudo kubeadm init --config kubeadm-config.yaml",
+              "why": "The cluster starts, but the CA, service-account and front-proxy keys stay on cp1: each new control plane would need them copied by hand (scp)."
+            },
+            {
+              "cmd": "sudo kubeadm init --config kubeadm-config.yaml --control-plane-endpoint lb.k8s.lab:6443",
+              "why": "kubeadm refuses: it can not mix '--config' with arguments [control-plane-endpoint]. The endpoint is already in the file."
+            },
+            {
+              "cmd": "sudo kubeadm init phase upload-certs --upload-certs --config kubeadm-config.yaml",
+              "why": "Only the upload phase: there is no cluster yet (no API server to store the Secret in), so nothing is bootstrapped."
+            }
+          ],
+          "explain": "--upload-certs encrypts the certificates every control plane must share (CAs, sa.key, front-proxy, etcd CA) into the kubeadm-certs Secret and prints the key that decrypts them. It is one of the few flags allowed next to --config; the endpoint is not, it lives in the file."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 45,
+          "context": [
+            "[upload-certs] Storing the certificates in Secret \"kubeadm-certs\" in the \"kube-system\" Namespace",
+            "[upload-certs] Using certificate key:",
+            "f8902e114ef118304e561c3ecd4d0b543adc226b7a07f675f56564185ffe0c07",
+            "...",
+            "You can now join any number of control-plane node by running ...",
+            "  kubeadm join lb.k8s.lab:6443 --token 9vr73a.a8uxyaju799qwdjv \\",
+            "    --discovery-token-ca-cert-hash sha256:7c2e...c866 \\",
+            "    --control-plane --certificate-key f8902e...0c07",
+            "As a safeguard, uploaded-certs will be deleted in two hours; ..."
+          ],
+          "prompt": "Step 3 - The admin kubeconfig is in place. Check that the encrypted shared certificates really are stored in the cluster.",
+          "options": [
+            {
+              "cmd": "kubectl -n kube-system get secret kubeadm-certs",
+              "correct": true,
+              "aliases": [
+                "kubectl get secret kubeadm-certs -n kube-system",
+                "kubectl -n kube-system get secrets kubeadm-certs",
+                "kubectl get secrets kubeadm-certs -n kube-system"
+              ],
+              "next": "s4"
+            },
+            {"cmd": "kubectl get secret kubeadm-certs", "why": "That looks in the 'default' namespace: 'NotFound', although the Secret exists in kube-system."},
+            {
+              "cmd": "kubectl -n kube-system get configmap kubeadm-certs",
+              "why": "The certificates are stored in a Secret, not a ConfigMap: 'NotFound'. (The kubeadm-config ConfigMap holds the ClusterConfiguration.)"
+            },
+            {"cmd": "ls /etc/kubernetes/pki", "why": "Those are cp1's local files, which always exist after init: it proves nothing about the copy cp2 and cp3 will download."}
+          ],
+          "explain": "kubeadm join --control-plane downloads kubeadm-certs from kube-system and decrypts it with the key. The Secret is deleted after two hours: if it is gone, the join fails, so check it before you rely on the printed control-plane join command."
+        },
+        "s4": {
+          "type": "command",
+          "time_limit": 75,
+          "prompt": "Step 4 - Clients will reach the API as lb.k8s.lab. Show the DNS names and IPs the API server certificate is valid for.",
+          "options": [
+            {
+              "cmd": "openssl x509 -in /etc/kubernetes/pki/apiserver.crt -noout -ext subjectAltName",
+              "correct": true,
+              "aliases": [
+                "openssl x509 -noout -ext subjectAltName -in /etc/kubernetes/pki/apiserver.crt",
+                "sudo openssl x509 -in /etc/kubernetes/pki/apiserver.crt -noout -ext subjectAltName",
+                "openssl x509 -in /etc/kubernetes/pki/apiserver.crt -noout -text | grep -A1 'Subject Alternative Name'"
+              ],
+              "next": null
+            },
+            {"cmd": "openssl x509 -in /etc/kubernetes/pki/ca.crt -noout -ext subjectAltName", "why": "ca.crt is the cluster CA: it signs the server certificates but does not list the API server's names."},
+            {
+              "cmd": "openssl x509 -in /etc/kubernetes/pki/apiserver-kubelet-client.crt -noout -ext subjectAltName",
+              "why": "That is the client certificate the API server presents to kubelets: it carries no server names (no SAN extension)."
+            },
+            {"cmd": "sudo kubeadm certs check-expiration", "why": "It lists expiry dates and CAs of each certificate, not the names (SANs) they are valid for."}
+          ],
+          "explain": "kubeadm adds the controlPlaneEndpoint host (lb.k8s.lab) to the API server certificate, next to the node name, IP and 'kubernetes' names. Without it, TLS through the load balancer fails with 'x509: certificate is valid for ..., not lb.k8s.lab'."
+        }
+      }
+    },
+    {
+      "id": "CLU-027",
+      "domain": "cluster",
+      "topic": "High availability (join a control-plane node)",
+      "difficulty": 3,
+      "title": "Join a second control plane",
+      "scenario": "cp1 was bootstrapped YESTERDAY with 'kubeadm init --control-plane-endpoint lb.k8s.lab:6443 --upload-certs'. The saved join commands are useless now: the token (24 h) and the certificate key (2 h) have expired. Add cp2 as a second control plane. You are root on cp1 and cp2.",
+      "tip": "Certificate key expired? 'kubeadm init phase upload-certs --upload-certs' on a control plane, then 'kubeadm token create --print-join-command --certificate-key KEY' prints the full control-plane join.",
+      "docs": [
+        {"title": "Creating Highly Available Clusters with kubeadm", "url": "https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/high-availability/"},
+        {"title": "kubeadm join", "url": "https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-join/"}
+      ],
+      "stakes": "Join without --control-plane and 'cp2' is just a worker: you believe you have HA, but one dead cp1 still stops everything.",
+      "analogy": "The certificate key is the code of a safe-deposit box that self-destructs after two hours: refill the box, get a new code.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "root@cp1# kubectl -n kube-system get secret kubeadm-certs",
+            "Error from server (NotFound): secrets \"kubeadm-certs\" not found"
+          ],
+          "prompt": "Step 1 - On cp1: store the shared certificates in the cluster again, encrypted with a NEW certificate key.",
+          "options": [
+            {
+              "cmd": "kubeadm init phase upload-certs --upload-certs",
+              "correct": true,
+              "aliases": ["sudo kubeadm init phase upload-certs --upload-certs"],
+              "next": "s2"
+            },
+            {"cmd": "kubeadm certs certificate-key", "why": "It only prints a random key: nothing is uploaded, and the kubeadm-certs Secret is still missing."},
+            {"cmd": "kubeadm certs renew all", "why": "It extends the expiry of cp1's own certificates; it uploads nothing, so cp2 still cannot download them."},
+            {"cmd": "kubeadm token create --print-join-command", "why": "A fresh token, but the kubeadm-certs Secret is still gone: a control-plane join cannot fetch the CA and keys."}
+          ],
+          "explain": "The uploaded certificates are a Secret that kubeadm deletes after two hours, together with the validity of its key. The 'upload-certs' phase re-encrypts cp1's shared certificates with a brand-new key, stores them in kube-system and prints that key."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 75,
+          "context": [
+            "[upload-certs] Storing the certificates in Secret \"kubeadm-certs\" in the \"kube-system\" Namespace",
+            "[upload-certs] Using certificate key:",
+            "7d3b0f5c9e1a...c42f",
+            "root@cp1# KEY=7d3b0f5c9e1a...c42f      # the full 64 hex digits"
+          ],
+          "prompt": "Step 2 - On cp1: print a complete CONTROL-PLANE join command, with a new token and that key.",
+          "options": [
+            {
+              "cmd": "kubeadm token create --print-join-command --certificate-key $KEY",
+              "correct": true,
+              "aliases": [
+                "sudo kubeadm token create --print-join-command --certificate-key $KEY",
+                "kubeadm token create --certificate-key $KEY --print-join-command"
+              ],
+              "next": "s3"
+            },
+            {
+              "cmd": "kubeadm token create --print-join-command --control-plane",
+              "why": "'token create' has no --control-plane flag ('unknown flag'): it is the --certificate-key that turns the printed command into a control-plane join."
+            },
+            {"cmd": "kubeadm token create --print-join-command", "why": "That prints a WORKER join: no --control-plane, no --certificate-key."},
+            {"cmd": "kubeadm init phase upload-certs --print-join-command", "why": "The upload phase has no --print-join-command flag: join commands come from 'kubeadm token create'."}
+          ],
+          "explain": "Yesterday's token expired too (24 h). 'token create --print-join-command' makes a new one and adds the CA hash; with --certificate-key it also appends '--control-plane --certificate-key KEY', ready to paste on cp2."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 120,
+          "context": [
+            "kubeadm join lb.k8s.lab:6443 --token q8w2er.t5y7u9i0o1p3a6s4 \\",
+            "    --discovery-token-ca-cert-hash sha256:9f4c...b81d \\",
+            "    --control-plane --certificate-key 7d3b0f5c9e1a...c42f",
+            "root@cp2# TOKEN=q8w2er.t5y7u9i0o1p3a6s4",
+            "root@cp2# HASH=sha256:9f4c...b81d      # with its sha256: prefix",
+            "root@cp2# KEY=7d3b0f5c9e1a...c42f"
+          ],
+          "prompt": "Step 3 - On cp2: join the cluster as a control plane, using TOKEN, HASH and KEY.",
+          "options": [
+            {
+              "cmd": "kubeadm join lb.k8s.lab:6443 --token $TOKEN --discovery-token-ca-cert-hash $HASH --control-plane --certificate-key $KEY",
+              "correct": true,
+              "aliases": [
+                "sudo kubeadm join lb.k8s.lab:6443 --token $TOKEN --discovery-token-ca-cert-hash $HASH --control-plane --certificate-key $KEY"
+              ],
+              "next": "s4"
+            },
+            {
+              "cmd": "kubeadm join lb.k8s.lab:6443 --token $TOKEN --discovery-token-ca-cert-hash $HASH",
+              "why": "cp2 joins as a WORKER: no API server, no etcd member. The cluster still has a single control plane."
+            },
+            {
+              "cmd": "kubeadm join lb.k8s.lab:6443 --token $TOKEN --discovery-token-ca-cert-hash $HASH --control-plane",
+              "why": "No key: kubeadm cannot download the shared certificates and stops, because /etc/kubernetes/pki/ca.crt is missing on cp2."
+            },
+            {
+              "cmd": "kubeadm init --control-plane-endpoint lb.k8s.lab:6443 --upload-certs",
+              "why": "That bootstraps a SECOND, separate cluster on cp2 (new CA, new etcd): the load balancer would then mix two clusters."
+            }
+          ],
+          "explain": "--control-plane makes kubeadm create an API server, scheduler, controller-manager and a new etcd member on cp2; --certificate-key decrypts the shared CA and keys from kubeadm-certs, so cp2 serves certificates signed by the same CA. Join control planes one at a time."
+        },
+        "s4": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "root@cp1# kubectl get nodes",
+            "NAME   STATUS   ROLES           AGE   VERSION",
+            "cp1    Ready    control-plane   1d    v1.37.1",
+            "cp2    Ready    control-plane   2m    v1.37.1"
+          ],
+          "prompt": "Step 4 - Check that cp2 runs its own control-plane Pods (API server, etcd, scheduler, controller-manager).",
+          "options": [
+            {
+              "cmd": "kubectl -n kube-system get pods -o wide --field-selector spec.nodeName=cp2",
+              "correct": true,
+              "aliases": [
+                "kubectl get pods -n kube-system -o wide --field-selector spec.nodeName=cp2",
+                "kubectl -n kube-system get pods --field-selector spec.nodeName=cp2",
+                "kubectl get pods -n kube-system --field-selector spec.nodeName=cp2",
+                "kubectl -n kube-system get pods --field-selector=spec.nodeName=cp2 -o wide"
+              ],
+              "next": null
+            },
+            {"cmd": "kubectl get pods -o wide --field-selector spec.nodeName=cp2", "why": "That searches the 'default' namespace: the static control-plane Pods live in kube-system, so 'No resources found'."},
+            {"cmd": "kubectl -n kube-system get pods -l kubernetes.io/hostname=cp2", "why": "kubernetes.io/hostname is a NODE label: no Pod carries it, so 'No resources found'."}
+          ],
+          "explain": "The ROLES column only reflects a label; the proof is the static Pods kube-apiserver-cp2, etcd-cp2, kube-scheduler-cp2 and kube-controller-manager-cp2 Running. Then rebalance CoreDNS ('kubectl -n kube-system rollout restart deployment coredns')."
+        }
+      }
+    },
+    {
+      "id": "CLU-028",
+      "domain": "cluster",
+      "topic": "High availability (etcd members and quorum)",
+      "difficulty": 2,
+      "title": "Inspect an HA control plane",
+      "scenario": "Cluster 'ha-lab' has three stacked control planes (cp1, cp2, cp3: one etcd member each) behind lb.k8s.lab:6443. cp3 is rebooting for maintenance. You are root on cp1, in /etc/kubernetes/pki/etcd.",
+      "tip": "etcd needs a quorum of (n/2)+1 members (rounded down): 3 members tolerate 1 failure, 5 tolerate 2, 4 still only 1. Hence an ODD number of control planes.",
+      "docs": [
+        {"title": "Options for Highly Available Topology", "url": "https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/ha-topology/"},
+        {"title": "Operating etcd clusters for Kubernetes", "url": "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"}
+      ],
+      "stakes": "Reboot a second control plane while one is down and etcd loses quorum: the API refuses every write, cluster-wide.",
+      "analogy": "A committee that needs a majority to vote: with 3 members, one can be absent; with 2 absent, nothing can be decided.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 45,
+          "prompt": "Step 1 - List only the control-plane nodes, by their role label.",
+          "options": [
+            {
+              "cmd": "kubectl get nodes -l node-role.kubernetes.io/control-plane",
+              "correct": true,
+              "aliases": [
+                "kubectl get no -l node-role.kubernetes.io/control-plane",
+                "kubectl get nodes -l node-role.kubernetes.io/control-plane=",
+                "kubectl get nodes --selector node-role.kubernetes.io/control-plane",
+                "kubectl get nodes --selector=node-role.kubernetes.io/control-plane"
+              ],
+              "next": "s2"
+            },
+            {"cmd": "kubectl get nodes -l node-role.kubernetes.io/master", "why": "kubeadm no longer sets the old 'master' label: 'No resources found', although there are three control planes."},
+            {"cmd": "kubectl get nodes --role=control-plane", "why": "kubectl get has no --role flag ('unknown flag'): roles are only labels, selected with -l."},
+            {"cmd": "kubectl get nodes -l role=control-plane", "why": "No node carries a 'role' label: 'No resources found'. The key is node-role.kubernetes.io/control-plane."}
+          ],
+          "explain": "The ROLES column is derived from node-role.kubernetes.io/<role> labels, so a label selector on that key returns exactly the control planes (the label has an empty value: the key alone matches)."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 90,
+          "context": [
+            "NAME   STATUS     ROLES           AGE   VERSION",
+            "cp1    Ready      control-plane   40d   v1.37.1",
+            "cp2    Ready      control-plane   40d   v1.37.1",
+            "cp3    NotReady   control-plane   40d   v1.37.1",
+            "# pwd",
+            "/etc/kubernetes/pki/etcd"
+          ],
+          "prompt": "Step 2 - Ask etcd itself (local member, default endpoint) which members form the cluster.",
+          "options": [
+            {
+              "cmd": "etcdctl --cacert=ca.crt --cert=server.crt --key=server.key member list",
+              "correct": true,
+              "aliases": [
+                "etcdctl --cacert=ca.crt --cert=server.crt --key=server.key member list -w table",
+                "etcdctl --endpoints=https://127.0.0.1:2379 --cacert=ca.crt --cert=server.crt --key=server.key member list",
+                "etcdctl --endpoints=https://127.0.0.1:2379 --cacert=ca.crt --cert=server.crt --key=server.key member list -w table"
+              ],
+              "next": "s3"
+            },
+            {"cmd": "etcdctl member list", "why": "No certificates: etcd requires client-certificate authentication, so the TLS handshake fails."},
+            {"cmd": "kubectl -n kube-system get pods -l component=etcd", "why": "That shows the etcd static Pods the kubelets report, not etcd's own membership (members added or removed by etcdctl do not show)."},
+            {"cmd": "etcdctl --cacert=ca.crt --cert=server.crt --key=server.key endpoint status", "why": "It reports only the endpoints you query (here the local one): no list of the other members."}
+          ],
+          "explain": "Membership is etcd's own data, so ask etcd. In the stacked topology kubeadm adds one member per control plane ('join --control-plane'): three control planes, three members, each with its peer (2380) and client (2379) URL."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 75,
+          "context": [
+            "2a9f1c3e5b7d0e41, started, cp1, https://192.168.10.11:2380, https://192.168.10.11:2379, false",
+            "6c0e8b2d4f1a3957, started, cp2, https://192.168.10.12:2380, https://192.168.10.12:2379, false",
+            "b41d7e9a2c6f8013, started, cp3, https://192.168.10.13:2380, https://192.168.10.13:2379, false"
+          ],
+          "prompt": "Step 3 - Check the health of EVERY member of that list, in one command.",
+          "options": [
+            {
+              "cmd": "etcdctl --cacert=ca.crt --cert=server.crt --key=server.key endpoint health --cluster",
+              "correct": true,
+              "aliases": [
+                "etcdctl --cacert=ca.crt --cert=server.crt --key=server.key endpoint health --cluster -w table",
+                "etcdctl --endpoints=https://127.0.0.1:2379 --cacert=ca.crt --cert=server.crt --key=server.key endpoint health --cluster"
+              ],
+              "next": "s4"
+            },
+            {
+              "cmd": "etcdctl --cacert=ca.crt --cert=server.crt --key=server.key endpoint health",
+              "why": "Without --cluster only the default endpoint (cp1's local member) is checked: 'healthy', and nothing about cp2 or cp3."
+            },
+            {
+              "cmd": "etcdctl --cacert=ca.crt --cert=server.crt --key=server.key member remove b41d7e9a2c6f8013",
+              "why": "That REMOVES cp3 from etcd: after its reboot it cannot rejoin, and the cluster is down to 2 members (no failure tolerated)."
+            },
+            {"cmd": "kubectl -n kube-system logs etcd-cp3", "why": "cp3 is rebooting: its kubelet cannot serve logs, and one member's logs say nothing about the others."}
+          ],
+          "explain": "--cluster reads the member list and checks every client URL. cp3 shows 'unhealthy', yet etcd still works: 3 members need a quorum of (3/2)+1 = 2, and cp1 + cp2 are 2. Lose one more and etcd stops accepting writes: wait for cp3 before touching another node."
+        },
+        "s4": {
+          "type": "edit",
+          "time_limit": 90,
+          "filename": "ops.kubeconfig",
+          "prompt": "Step 4 - A colleague's kubeconfig talks straight to cp3 and fails. Point it at the load balancer instead: replace the server line. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: v1",
+            "kind: Config",
+            "clusters:",
+            "- cluster:",
+            "    certificate-authority-data: LS0tLS1CRUdJTi...",
+            "    server: https://192.168.10.13:6443",
+            "  name: ha-lab",
+            "contexts:",
+            "- context:",
+            "    cluster: ha-lab",
+            "    user: ops",
+            "  name: ops@ha-lab",
+            "current-context: ops@ha-lab",
+            "users:",
+            "- name: ops",
+            "  user:",
+            "    client-certificate-data: LS0tLS1CRUdJTi...",
+            "    client-key-data: LS0tLS1CRUdJTi..."
+          ],
+          "target": ["    server: https://192.168.10.13:6443"],
+          "options": [
+            {"correct": true, "snippet": [
+                "    server: https://lb.k8s.lab:6443"]},
+            {"why": "Works today, but pins cp1: the next reboot of cp1 breaks this kubeconfig again. Only the load balancer survives any one node.", "snippet": [
+                "    server: https://192.168.10.11:6443"]},
+            {"why": "The API server speaks only HTTPS on 6443: kubectl gets 'Client sent an HTTP request to an HTTPS server'.", "snippet": [
+                "    server: http://lb.k8s.lab:6443"]},
+            {"why": "2379 is etcd's client port, and the load balancer does not even listen there: 'connection refused'.", "snippet": [
+                "    server: https://lb.k8s.lab:2379"]}
+          ],
+          "checks": [
+            {"regex": "^    server: https://(lb\\.k8s\\.lab|192\\.168\\.10\\.100):6443\\s*$", "msg": "The cluster's server must be https://lb.k8s.lab:6443 (4 spaces of indentation)."},
+            {"regex": "^  name: ha-lab\\s*$", "msg": "Keep the cluster name ha-lab."}
+          ],
+          "forbid": [
+            {"regex": "192\\.168\\.10\\.1[123]\\b", "msg": "Do not pin one control plane: use the load balancer."}
+          ],
+          "recap": "server: https://lb.k8s.lab:6443 - kubeconfigs of an HA cluster target the load balancer.",
+          "next": null,
+          "explain": "In an HA cluster every client (kubectl, kubelets, controllers) must use the controlPlaneEndpoint, so the load balancer can route around a dead API server. The existing CA data still fits: lb.k8s.lab is in the API server certificate because it is the controlPlaneEndpoint."
+        }
+      }
+    },
+    {
+      "id": "CLU-029",
+      "domain": "cluster",
+      "topic": "High availability (upgrade several control planes)",
+      "difficulty": 3,
+      "title": "Upgrade an HA control plane",
+      "scenario": "The HA cluster (cp1, cp2, cp3 behind lb.k8s.lab:6443) runs v1.36.5. On every control plane the kubeadm package is already 1.37.1. Upgrade the control planes to v1.37.1, one node at a time. You are root on each node.",
+      "tip": "'kubeadm upgrade apply vX.Y.Z' on ONE control plane only; 'kubeadm upgrade node' on each other one. Node by node: drain, kubelet + kubectl packages, restart kubelet, uncordon.",
+      "docs": [
+        {"title": "Upgrading kubeadm clusters", "url": "https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-upgrade/"}
+      ],
+      "stakes": "Drain and upgrade two control planes at once and etcd may lose quorum mid-upgrade: the whole API goes read-only.",
+      "analogy": "Changing the tyres of a moving convoy: one truck pulls over at a time, and only rejoins before the next one stops.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "root@cp1# kubeadm upgrade plan",
+            "COMPONENT                 NODE   CURRENT   TARGET",
+            "kube-apiserver            cp1    v1.36.5   v1.37.1",
+            "kube-apiserver            cp2    v1.36.5   v1.37.1",
+            "kube-apiserver            cp3    v1.36.5   v1.37.1",
+            "...",
+            "You can now apply the upgrade by executing the following command:",
+            "        kubeadm upgrade apply v1.37.1"
+          ],
+          "prompt": "Step 1 - On cp1, the FIRST control plane you upgrade: upgrade its control-plane components.",
+          "options": [
+            {
+              "cmd": "kubeadm upgrade apply v1.37.1",
+              "correct": true,
+              "aliases": [
+                "sudo kubeadm upgrade apply v1.37.1",
+                "kubeadm upgrade apply v1.37.1 -y",
+                "kubeadm upgrade apply -y v1.37.1"
+              ],
+              "next": "s2"
+            },
+            {"cmd": "kubeadm upgrade node", "why": "'upgrade node' brings a node to the version the cluster already records (kubeadm-config), still v1.36.5 until 'apply' has run: cp1 stays on v1.36.5."},
+            {"cmd": "kubeadm upgrade apply v1.38.0", "why": "kubeadm 1.37.1 cannot install a version newer than itself, and minor versions cannot be skipped: the upgrade is refused."},
+            {"cmd": "apt-get install -y kubelet=1.37.1-1.1", "why": "Too early: a kubelet must never be newer than the API servers it talks to. Control-plane components first, kubelet after."}
+          ],
+          "explain": "'apply' runs once, on the first control plane: it checks the cluster, records v1.37.1 in the kubeadm-config ConfigMap and upgrades cp1's static Pods (including its etcd member). The other control planes then follow that recorded version."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "root@cp2# kubectl get nodes",
+            "NAME   STATUS   ROLES           AGE   VERSION",
+            "cp1    Ready    control-plane   92d   v1.37.1",
+            "cp2    Ready    control-plane   92d   v1.36.5",
+            "cp3    Ready    control-plane   92d   v1.36.5"
+          ],
+          "prompt": "Step 2 - cp1 is fully done (kubelet included, uncordoned). On cp2: upgrade its control-plane components.",
+          "options": [
+            {
+              "cmd": "kubeadm upgrade node",
+              "correct": true,
+              "aliases": ["sudo kubeadm upgrade node"],
+              "next": "s3"
+            },
+            {"cmd": "kubeadm upgrade node v1.37.1", "why": "'upgrade node' takes no version: it reads the one 'apply' recorded in the cluster. kubeadm rejects the extra argument."},
+            {"cmd": "kubeadm upgrade plan", "why": "Read-only: it changes nothing, and is not needed on the other control planes."},
+            {"cmd": "kubectl -n kube-system delete pod kube-apiserver-cp2", "why": "A mirror Pod: the kubelet recreates it from the unchanged manifest in /etc/kubernetes/manifests, still v1.36.5."}
+          ],
+          "explain": "On every other control plane, 'upgrade node' fetches the ClusterConfiguration that 'apply' wrote and rewrites this node's static Pod manifests and kubelet config. Since v1.28 kubeadm upgrades CoreDNS and kube-proxy only once the last control plane is upgraded."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 60,
+          "prompt": "Step 3 - Before upgrading cp2's kubelet package, mark it unschedulable and evict its workloads.",
+          "options": [
+            {
+              "cmd": "kubectl drain cp2 --ignore-daemonsets",
+              "correct": true,
+              "aliases": [
+                "kubectl drain cp2 --ignore-daemonsets --delete-emptydir-data",
+                "kubectl drain --ignore-daemonsets cp2"
+              ],
+              "next": "s4"
+            },
+            {"cmd": "kubectl drain cp2", "why": "Refused: cp2 runs DaemonSet Pods (kube-proxy, the CNI) that drain cannot evict without --ignore-daemonsets."},
+            {"cmd": "kubectl cordon cp2", "why": "Only blocks NEW Pods: those already on cp2 (CoreDNS, for example) are cut off when the kubelet restarts."},
+            {"cmd": "kubectl delete node cp2", "why": "Removes the Node object: its Pods are garbage-collected at once, with no graceful eviction and no PodDisruptionBudget check."}
+          ],
+          "explain": "drain = cordon + evict through the Eviction API, which respects PodDisruptionBudgets, so the cluster's workloads move away gracefully. DaemonSet Pods are skipped (they belong on every node). Static control-plane Pods are not evicted either."
+        },
+        "s4": {
+          "type": "command",
+          "time_limit": 45,
+          "context": [
+            "root@cp2# systemctl daemon-reload && systemctl restart kubelet",
+            "root@cp2# kubectl get nodes",
+            "NAME   STATUS                     ROLES           AGE   VERSION",
+            "cp1    Ready                      control-plane   92d   v1.37.1",
+            "cp2    Ready,SchedulingDisabled   control-plane   92d   v1.37.1",
+            "cp3    Ready                      control-plane   92d   v1.36.5"
+          ],
+          "prompt": "Step 4 - cp2 runs kubelet 1.37.1. Put it back into service BEFORE you move on to cp3.",
+          "options": [
+            {"cmd": "kubectl uncordon cp2", "correct": true, "next": null},
+            {"cmd": "kubectl drain cp3 --ignore-daemonsets", "why": "Too soon: cp2 is still cordoned, so evicted Pods have one schedulable control plane left, and cp2 stays out of service."},
+            {"cmd": "kubectl undrain cp2", "why": "There is no 'undrain' command: the reverse of drain/cordon is 'kubectl uncordon'."},
+            {"cmd": "kubectl patch node cp2 -p '{\"spec\":{\"unschedulable\":true}}'", "why": "unschedulable: true IS the cordon: the node stays SchedulingDisabled."}
+          ],
+          "explain": "uncordon clears spec.unschedulable so cp2 takes Pods again. Only then repeat 'upgrade node', drain, kubelet and uncordon on cp3: one node at a time keeps 2 of 3 etcd members and API servers up all along."
+        }
+      }
+    },
+    {
+      "id": "CLU-030",
+      "domain": "cluster",
+      "topic": "High availability (load balancer and ports)",
+      "difficulty": 2,
+      "title": "Prepare the network for an HA control plane",
+      "scenario": "Three control planes: cp1 (192.168.10.11, already bootstrapped), cp2 (192.168.10.12) and cp3 (192.168.10.13), behind HAProxy on lb.k8s.lab (192.168.10.100). The nodes run Ubuntu with ufw enabled. Make the network ready for cp2 and cp3 to join.",
+      "tip": "Control-plane ports: 6443 (API), 2379-2380 (etcd), 10250 (kubelet), 10259 (scheduler), 10257 (controller-manager). Use an odd number of control planes (3, 5).",
+      "docs": [
+        {"title": "Creating Highly Available Clusters with kubeadm", "url": "https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/high-availability/"},
+        {"title": "Ports and Protocols", "url": "https://kubernetes.io/docs/reference/networking/ports-and-protocols/"}
+      ],
+      "stakes": "Forget the health check and the load balancer keeps sending a third of the requests to a dead API server.",
+      "analogy": "The load balancer is a receptionist who checks which desks are staffed before sending each visitor over.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 45,
+          "prompt": "Step 1 - From cp2: test whether cp1's etcd PEER port can be reached over TCP (2-second timeout).",
+          "options": [
+            {
+              "cmd": "nc -zv -w 2 192.168.10.11 2380",
+              "correct": true,
+              "aliases": [
+                "nc -vz -w 2 192.168.10.11 2380",
+                "nc -z -v -w 2 192.168.10.11 2380",
+                "nc -zv -w2 192.168.10.11 2380"
+              ],
+              "next": "s2"
+            },
+            {"cmd": "ping -c 2 192.168.10.11", "why": "ICMP only proves the host is up: a firewall can still drop TCP 2380."},
+            {"cmd": "nc -zv -w 2 192.168.10.11 6443", "why": "6443 is the API server port; etcd's members talk to each other on 2380 (peer) and 2379 (client)."},
+            {"cmd": "ss -tlnp | grep 2380", "why": "ss lists the LOCAL listening sockets of cp2 (where etcd does not run yet): it says nothing about reaching cp1."}
+          ],
+          "explain": "nc -z opens a TCP connection and closes it at once; -v prints the result. 'succeeded' means open; 'refused' means nothing listens; a timeout means a firewall drops the packets. A new stacked member needs cp1's 2380 and 2379."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 75,
+          "context": [
+            "root@cp2# nc -zv -w 2 192.168.10.11 2380",
+            "nc: connect to 192.168.10.11 port 2380 (tcp) timed out: Operation now in progress",
+            "root@cp1# ss -tlnp | grep etcd",
+            "LISTEN 0  4096  192.168.10.11:2379  0.0.0.0:*  users:((\"etcd\",pid=1873,fd=9))",
+            "LISTEN 0  4096  192.168.10.11:2380  0.0.0.0:*  users:((\"etcd\",pid=1873,fd=7))",
+            "root@cp1# ufw status",
+            "6443/tcp                   ALLOW       Anywhere",
+            "10250/tcp                  ALLOW       Anywhere"
+          ],
+          "prompt": "Step 2 - etcd listens, but the firewall drops the traffic. On cp1: allow etcd's client AND peer ports.",
+          "options": [
+            {
+              "cmd": "ufw allow 2379:2380/tcp",
+              "correct": true,
+              "aliases": ["sudo ufw allow 2379:2380/tcp", "ufw allow proto tcp from any to any port 2379:2380"],
+              "next": "s3"
+            },
+            {"cmd": "ufw allow 2380", "why": "Only the peer port: a joining control plane also calls cp1's client port 2379 to register itself as a new etcd member."},
+            {"cmd": "ufw allow 2379:2380/udp", "why": "etcd speaks TCP: opening UDP changes nothing, the TCP connections still time out."},
+            {"cmd": "ufw allow 6443/tcp", "why": "6443 is already allowed (see ufw status): it is the API port, etcd stays blocked."}
+          ],
+          "explain": "Stacked etcd uses 2380 between members (replication, elections) and 2379 for clients; a joining control plane uses both. ufw writes port ranges with a colon and needs the protocol. Kubernetes only uses TCP on the control-plane ports."
+        },
+        "s3": {
+          "type": "edit",
+          "time_limit": 100,
+          "filename": "/etc/haproxy/haproxy.cfg",
+          "prompt": "Step 3 - Add cp2 and cp3 to the backend, with a health check like cp1: type the right lines in place of the TODO comment. Ctrl+D to submit.",
+          "prefill": [
+            "defaults",
+            "    mode tcp",
+            "    timeout connect 5s",
+            "    timeout client 1h",
+            "    timeout server 1h",
+            "",
+            "frontend kube-apiserver",
+            "    bind *:6443",
+            "    default_backend control-planes",
+            "",
+            "backend control-planes",
+            "    balance roundrobin",
+            "    server cp1 192.168.10.11:6443 check",
+            "    # TODO: cp2 and cp3"
+          ],
+          "target": ["    # TODO: cp2 and cp3"],
+          "options": [
+            {"correct": true, "snippet": [
+                "    server cp2 192.168.10.12:6443 check",
+                "    server cp3 192.168.10.13:6443 check"]},
+            {"why": "No 'check': HAProxy never marks a dead API server down and keeps routing its share of requests there (kubectl timeouts during a reboot).", "snippet": [
+                "    server cp2 192.168.10.12:6443",
+                "    server cp3 192.168.10.13:6443"]},
+            {"why": "2379 is etcd's client port: API clients sent there hit etcd, which rejects them (wrong protocol, wrong certificate).", "snippet": [
+                "    server cp2 192.168.10.12:2379 check",
+                "    server cp3 192.168.10.13:2379 check"]},
+            {"why": "10250 is the kubelet API, not the Kubernetes API: kubectl requests would reach kubelets and fail.", "snippet": [
+                "    server cp2 192.168.10.12:10250 check",
+                "    server cp3 192.168.10.13:10250 check"]}
+          ],
+          "checks": [
+            {"regex": "^    server cp2 192\\.168\\.10\\.12:6443 check\\b.*$", "msg": "Add 'server cp2 192.168.10.12:6443 check' under the backend."},
+            {"regex": "^    server cp3 192\\.168\\.10\\.13:6443 check\\b.*$", "msg": "Add 'server cp3 192.168.10.13:6443 check' under the backend."},
+            {"regex": "^    server cp1 192\\.168\\.10\\.11:6443 check\\s*$", "msg": "Keep the cp1 line."}
+          ],
+          "forbid": [
+            {"regex": "# TODO", "msg": "The TODO comment is still there - type the lines in its place."},
+            {"regex": "^\\s*server \\S+ [\\d.]+:(?!6443\\b)\\d+", "msg": "Every backend server is an API server on port 6443."}
+          ],
+          "recap": "server cpN 192.168.10.1N:6443 check - every API server in the backend, each health-checked.",
+          "next": "s4",
+          "explain": "The load balancer is a plain TCP forwarder (mode tcp: TLS goes end to end to the API servers). 'check' runs a TCP health check on 6443, the one the kubeadm HA guide asks for, so a stopped API server leaves the rotation within seconds."
+        },
+        "s4": {
+          "type": "command",
+          "time_limit": 60,
+          "context": ["root@lb# systemctl reload haproxy"],
+          "prompt": "Step 4 - Through the load balancer, check that an API server really answers (health endpoints allow anonymous requests).",
+          "options": [
+            {
+              "cmd": "curl -k https://lb.k8s.lab:6443/livez",
+              "correct": true,
+              "aliases": [
+                "curl -k https://lb.k8s.lab:6443/readyz",
+                "curl -k https://lb.k8s.lab:6443/healthz",
+                "curl -sk https://lb.k8s.lab:6443/livez",
+                "curl --insecure https://lb.k8s.lab:6443/livez"
+              ],
+              "next": null
+            },
+            {"cmd": "nc -zv lb.k8s.lab 6443", "why": "HAProxy itself accepts the TCP connection: 'succeeded' even when every API server behind it is down."},
+            {"cmd": "curl http://lb.k8s.lab:6443/livez", "why": "Plain HTTP to a TLS port: the API server answers 'Client sent an HTTP request to an HTTPS server'."},
+            {"cmd": "curl -k https://lb.k8s.lab:2379/health", "why": "The load balancer only listens on 6443 ('connection refused'), and etcd is not the API anyway."}
+          ],
+          "explain": "Only an API server can answer /livez with 'ok', so the reply proves the whole path: frontend, backend, a live kube-apiserver. -k skips the CA check for this test (or pass --cacert). A plain TCP test stops at HAProxy."
+        }
+      }
+    },
+    {
       "id": "WRK-001",
       "domain": "workloads",
       "topic": "Deployments / dry-run workflow",
@@ -3943,6 +4621,542 @@
       }
     },
     {
+      "id": "WRK-016",
+      "domain": "workloads",
+      "topic": "PodDisruptionBudget",
+      "difficulty": 2,
+      "title": "Keep two api Pods through a drain",
+      "scenario": "Deployment 'api' in namespace 'shop' runs 3 replicas labelled app=api. Node maintenance starts tonight: at least 2 api Pods must stay available during voluntary disruptions such as drains.",
+      "tip": "A PDB only limits EVICTIONS (drain, Eviction API). 'kubectl delete pod', node crashes and drain --disable-eviction bypass it. minAvailable = replicas blocks every drain.",
+      "docs": [
+        {"title": "Specifying a Disruption Budget for your Application", "url": "https://kubernetes.io/docs/tasks/run-application/configure-pdb/"},
+        {"title": "Disruptions", "url": "https://kubernetes.io/docs/concepts/workloads/pods/disruptions/"},
+        {"title": "Safely Drain a Node", "url": "https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/"}
+      ],
+      "stakes": "Without a budget a drain may evict every api replica at once: checkout is down while the new Pods pull their image.",
+      "analogy": "A PDB is the rule 'two tills stay open': a manager may send one cashier on break, never the last two.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 75,
+          "prompt": "Step 1 - Create PodDisruptionBudget 'api-pdb' in 'shop' that keeps at least 2 Pods labelled app=api available.",
+          "options": [
+            {
+              "cmd": "kubectl create pdb api-pdb --selector=app=api --min-available=2 -n shop",
+              "correct": true,
+              "aliases": [
+                "kubectl create poddisruptionbudget api-pdb --selector=app=api --min-available=2 -n shop",
+                "kubectl -n shop create pdb api-pdb --selector=app=api --min-available=2",
+                "kubectl create pdb api-pdb -n shop --selector=app=api --min-available=2",
+                "kubectl create pdb api-pdb --min-available=2 --selector=app=api -n shop"
+              ],
+              "next": "s2"
+            },
+            {
+              "cmd": "kubectl create pdb api-pdb --deployment=api --min-available=2 -n shop",
+              "why": "There is no --deployment flag (kubectl stops: unknown flag). A PDB never points at a Deployment: it selects Pods by label with --selector."
+            },
+            {
+              "cmd": "kubectl create pdb api-pdb --selector=app=api --min-available=2 --max-unavailable=1 -n shop",
+              "why": "kubectl refuses: min-available and max-unavailable cannot be both specified. A PDB holds exactly one of the two."
+            },
+            {
+              "cmd": "kubectl create pdb api-pdb --selector=app=api --min-available=2",
+              "why": "Created in the current namespace (default): a PDB only selects Pods of its own namespace, so it protects nothing in 'shop' and the drain ignores it."
+            }
+          ],
+          "explain": "A PDB selects Pods by label in its own namespace and holds minAvailable OR maxUnavailable. minAvailable=2 with 3 healthy Pods leaves 1 allowed disruption. --min-available=3 would leave 0: every drain would hang on these Pods."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "$ kubectl get pods -n shop -l app=api -o wide",
+            "NAME                   READY   STATUS    RESTARTS   AGE   IP           NODE",
+            "api-6d8f9c7b5d-4xkqp   1/1     Running   0          2d    10.244.1.7   node01",
+            "api-6d8f9c7b5d-9tm2c   1/1     Running   0          2d    10.244.1.9   node01",
+            "api-6d8f9c7b5d-zl8wv   1/1     Running   0          2d    10.244.2.4   node02"
+          ],
+          "prompt": "Step 2 - Two api Pods run on node01. Before draining it, check how many api Pods the budget lets you evict right now.",
+          "options": [
+            {
+              "cmd": "kubectl get pdb api-pdb -n shop",
+              "correct": true,
+              "aliases": [
+                "kubectl get poddisruptionbudget api-pdb -n shop",
+                "kubectl -n shop get pdb api-pdb",
+                "kubectl get pdb -n shop",
+                "kubectl describe pdb api-pdb -n shop"
+              ],
+              "next": "s3"
+            },
+            {"cmd": "kubectl get pdb -A -l app=api", "why": "-l filters PDBs by THEIR OWN labels, not by the Pods they select: a PDB made by 'kubectl create pdb' has no labels, so 'No resources found'."},
+            {"cmd": "kubectl describe deployment api -n shop", "why": "A Deployment knows nothing about the PDBs that cover its Pods: no budget and no allowed disruptions in its output."},
+            {"cmd": "kubectl get pdb api-pdb", "why": "Without -n shop kubectl looks in the current namespace (default): NotFound, although the budget exists."}
+          ],
+          "explain": "ALLOWED DISRUPTIONS = healthy Pods - minAvailable = 3 - 2 = 1, kept up to date by the disruption controller. 0 means every eviction is refused right now (a Pod not Ready, or a budget as strict as the replica count). The status holds the same: currentHealthy, desiredHealthy, disruptionsAllowed."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 75,
+          "context": [
+            "$ kubectl get pdb api-pdb -n shop",
+            "NAME      MIN AVAILABLE   MAX UNAVAILABLE   ALLOWED DISRUPTIONS   AGE",
+            "api-pdb   2               N/A               1                     5m"
+          ],
+          "prompt": "Step 3 - Drain node01 (it also runs DaemonSet Pods and a Pod with throwaway emptyDir data) while honouring the budget.",
+          "options": [
+            {
+              "cmd": "kubectl drain node01 --ignore-daemonsets --delete-emptydir-data",
+              "correct": true,
+              "aliases": ["kubectl drain node01 --delete-emptydir-data --ignore-daemonsets"],
+              "next": null
+            },
+            {
+              "cmd": "kubectl drain node01 --ignore-daemonsets --delete-emptydir-data --disable-eviction",
+              "why": "--disable-eviction makes drain DELETE the Pods instead of evicting them: the PDB is bypassed and both api Pods of node01 can go at once."
+            },
+            {
+              "cmd": "kubectl cordon node01 && kubectl delete pods -n shop -l app=api",
+              "why": "'kubectl delete' does not go through the Eviction API: the PDB is not consulted and all 3 api Pods are deleted, on every node."
+            },
+            {"cmd": "kubectl drain node01 --delete-emptydir-data", "why": "drain refuses to start: it cannot delete DaemonSet-managed Pods (kube-proxy, CNI) without --ignore-daemonsets."}
+          ],
+          "explain": "drain cordons the node, then evicts each Pod through the Eviction API, which checks the PDB. The first api Pod goes (1 allowed); the next eviction gets HTTP 429 and drain retries until the replacement is Ready elsewhere. Pods deleted directly never ask the budget."
+        }
+      }
+    },
+    {
+      "id": "WRK-017",
+      "domain": "workloads",
+      "topic": "DaemonSet",
+      "difficulty": 2,
+      "title": "A log agent on every node",
+      "scenario": "Every node, control plane included, must run one 'log-agent' Pod (image fluent/fluent-bit:3.2) in namespace 'logging'. kubectl has no generator for DaemonSets: start from a Deployment manifest.",
+      "tip": "No 'kubectl create daemonset': generate a Deployment with --dry-run=client -o yaml, change kind, delete replicas and strategy. Tainted control-plane nodes need a toleration.",
+      "docs": [
+        {"title": "DaemonSet", "url": "https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/"},
+        {"title": "Taints and Tolerations", "url": "https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/"}
+      ],
+      "stakes": "Forget the toleration and the nodes running etcd and the API server ship no logs: the outage you debug is invisible.",
+      "analogy": "A DaemonSet posts one guard per building; a new building gets its guard. The VIP building needs a pass: a toleration.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 90,
+          "prompt": "Step 1 - Generate a starting manifest ds.yaml without creating anything in the cluster.",
+          "options": [
+            {
+              "cmd": "kubectl create deploy log-agent --image=fluent/fluent-bit:3.2 -n logging --dry-run=client -o yaml > ds.yaml",
+              "correct": true,
+              "aliases": [
+                "kubectl create deployment log-agent --image=fluent/fluent-bit:3.2 -n logging --dry-run=client -o yaml > ds.yaml",
+                "kubectl -n logging create deployment log-agent --image=fluent/fluent-bit:3.2 --dry-run=client -o yaml > ds.yaml",
+                "kubectl create deployment log-agent --image=fluent/fluent-bit:3.2 --dry-run=client -o yaml -n logging > ds.yaml"
+              ],
+              "next": "s2"
+            },
+            {
+              "cmd": "kubectl create daemonset log-agent --image=fluent/fluent-bit:3.2 -n logging --dry-run=client -o yaml > ds.yaml",
+              "why": "There is no 'create daemonset' subcommand: kubectl fails and ds.yaml is left EMPTY (the shell creates the file before kubectl runs)."
+            },
+            {
+              "cmd": "kubectl create deployment log-agent --image=fluent/fluent-bit:3.2 -n logging -o yaml > ds.yaml",
+              "why": "Without --dry-run=client the Deployment is really created: a stray log-agent Pod runs in 'logging' next to your future DaemonSet."
+            },
+            {
+              "cmd": "kubectl run log-agent --image=fluent/fluent-bit:3.2 -n logging --dry-run=client -o yaml > ds.yaml",
+              "why": "'kubectl run' generates a bare Pod: no selector and no template, so the whole spec must be rebuilt by hand."
+            }
+          ],
+          "explain": "A Deployment and a DaemonSet share the selector + Pod template shape, so the generated Deployment is the fastest skeleton. --dry-run=client builds the object locally and -o yaml prints it: nothing reaches the API server."
+        },
+        "s2": {
+          "type": "edit",
+          "time_limit": 100,
+          "filename": "ds.yaml",
+          "context": [
+            "$ sed -i 's/^kind: Deployment/kind: DaemonSet/' ds.yaml && kubectl apply -f ds.yaml",
+            "Error from server (BadRequest): error when creating \"ds.yaml\": DaemonSet in version \"v1\" cannot be handled as a DaemonSet: strict decoding error: unknown field \"spec.replicas\", unknown field \"spec.strategy\""
+          ],
+          "prompt": "Step 2 - kind is now DaemonSet, but apply fails. Type the right 'spec:' block over the lines from 'spec:' to 'strategy'. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: apps/v1",
+            "kind: DaemonSet",
+            "metadata:",
+            "  labels:",
+            "    app: log-agent",
+            "  name: log-agent",
+            "  namespace: logging",
+            "spec:",
+            "  replicas: 1",
+            "  selector:",
+            "    matchLabels:",
+            "      app: log-agent",
+            "  strategy: {}",
+            "  template:",
+            "    metadata:",
+            "      labels:",
+            "        app: log-agent",
+            "    spec:",
+            "      containers:",
+            "      - image: fluent/fluent-bit:3.2",
+            "        name: fluent-bit",
+            "        resources: {}",
+            "status: {}"
+          ],
+          "target": [
+            "spec:",
+            "  replicas: 1",
+            "  selector:",
+            "    matchLabels:",
+            "      app: log-agent",
+            "  strategy: {}"
+          ],
+          "options": [
+            {"correct": true, "snippet": [
+                "spec:",
+                "  selector:",
+                "    matchLabels:",
+                "      app: log-agent"]},
+            {"why": "A DaemonSet has no replicas: it runs one Pod per eligible node. The API rejects the manifest: unknown field \"spec.replicas\".", "snippet": [
+                "spec:",
+                "  replicas: 1",
+                "  selector:",
+                "    matchLabels:",
+                "      app: log-agent"]},
+            {"why": "strategy is a Deployment field (DaemonSets use updateStrategy): unknown field \"spec.strategy\", the manifest is rejected.", "snippet": [
+                "spec:",
+                "  selector:",
+                "    matchLabels:",
+                "      app: log-agent",
+                "  strategy: {}"]},
+            {"why": "apps/v1 requires the selector, and it must match the template labels: the API answers 'spec.selector: Required value'.", "snippet": [
+                "spec:"]}
+          ],
+          "checks": [
+            {"regex": "^kind: DaemonSet\\s*$", "msg": "kind must be DaemonSet."},
+            {"regex": "^spec:\\s*\\n  selector:\\s*\\n    matchLabels:\\s*\\n      app: log-agent\\s*$", "msg": "spec must keep the selector (matchLabels app: log-agent)."}
+          ],
+          "forbid": [
+            {"regex": "^  replicas:", "msg": "A DaemonSet has no replicas field."},
+            {"regex": "^  strategy:", "msg": "strategy is a Deployment field (DaemonSets use updateStrategy)."}
+          ],
+          "recap": "DaemonSet spec = selector + template (+ updateStrategy): no replicas, no strategy.",
+          "next": "s3",
+          "explain": "The DaemonSet controller places one Pod per eligible node, so replicas means nothing, and its rollout field is updateStrategy (RollingUpdate or OnDelete), not strategy. Strict field validation rejects both leftovers instead of ignoring them. The selector stays and must match the template labels."
+        },
+        "s3": {
+          "type": "edit",
+          "time_limit": 110,
+          "filename": "ds.yaml",
+          "context": [
+            "$ kubectl describe node controlplane | grep Taints",
+            "Taints:             node-role.kubernetes.io/control-plane:NoSchedule"
+          ],
+          "prompt": "Step 3 - The DaemonSet must also run on the tainted control-plane node. Replace the TODO line. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: apps/v1",
+            "kind: DaemonSet",
+            "metadata:",
+            "  labels:",
+            "    app: log-agent",
+            "  name: log-agent",
+            "  namespace: logging",
+            "spec:",
+            "  selector:",
+            "    matchLabels:",
+            "      app: log-agent",
+            "  template:",
+            "    metadata:",
+            "      labels:",
+            "        app: log-agent",
+            "    spec:",
+            "      # TODO: also run on control-plane nodes",
+            "      containers:",
+            "      - image: fluent/fluent-bit:3.2",
+            "        name: fluent-bit",
+            "        resources: {}",
+            "status: {}"
+          ],
+          "target": ["      # TODO: also run on control-plane nodes"],
+          "options": [
+            {"correct": true, "snippet": [
+                "      tolerations:",
+                "      - key: node-role.kubernetes.io/control-plane",
+                "        operator: Exists",
+                "        effect: NoSchedule"]},
+            {"why": "The effect must match the taint's (or be empty): NoExecute does not tolerate a NoSchedule taint, so the control plane gets no Pod and DESIRED stays at the worker count.", "snippet": [
+                "      tolerations:",
+                "      - key: node-role.kubernetes.io/control-plane",
+                "        operator: Exists",
+                "        effect: NoExecute"]},
+            {"why": "kubeadm stopped applying the node-role.kubernetes.io/master taint in v1.25: this toleration matches nothing and the control plane gets no agent.", "snippet": [
+                "      tolerations:",
+                "      - key: node-role.kubernetes.io/master",
+                "        operator: Exists",
+                "        effect: NoSchedule"]},
+            {"why": "A nodeSelector ATTRACTS, it does not tolerate: the taint still repels the Pod, and the workers are now excluded too, so DESIRED drops to 0.", "snippet": [
+                "      nodeSelector:",
+                "        node-role.kubernetes.io/control-plane: \"\""]}
+          ],
+          "checks": [
+            {
+              "regex": "^    spec:\\s*\\n      tolerations:\\s*\\n      - key:\\s*\\\"?node-role\\.kubernetes\\.io/control-plane\\\"?\\s*\\n        operator:\\s*\\\"?Exists\\\"?\\s*\\n        effect:\\s*\\\"?NoSchedule\\\"?\\s*$",
+              "msg": "In the Pod template: tolerations with key node-role.kubernetes.io/control-plane, operator Exists, effect NoSchedule."
+            }
+          ],
+          "forbid": [
+            {"regex": "# TODO", "msg": "The TODO comment is still there - type the snippet in its place."},
+            {"regex": "^\\s+nodeSelector:", "msg": "A nodeSelector does not tolerate a taint."}
+          ],
+          "recap": "tolerations: key node-role.kubernetes.io/control-plane, operator Exists, effect NoSchedule (Pod template).",
+          "next": "s4",
+          "explain": "A taint repels every Pod that does not tolerate it, DaemonSet Pods included: the controller only adds tolerations for node conditions (not-ready, unschedulable...), not for the control-plane role. Exists matches whatever the value (empty here); key and effect must match."
+        },
+        "s4": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "$ kubectl apply -f ds.yaml",
+            "daemonset.apps/log-agent created",
+            "$ kubectl get ds log-agent -n logging",
+            "NAME        DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE",
+            "log-agent   3         3         3       3            3           <none>          40s"
+          ],
+          "prompt": "Step 4 - DESIRED is 3 for a 3-node cluster. Show the node each log-agent Pod runs on.",
+          "options": [
+            {
+              "cmd": "kubectl get pods -n logging -l app=log-agent -o wide",
+              "correct": true,
+              "aliases": [
+                "kubectl get pods -l app=log-agent -n logging -o wide",
+                "kubectl -n logging get pods -l app=log-agent -o wide",
+                "kubectl get po -n logging -l app=log-agent -o wide",
+                "kubectl get pods -n logging -o wide"
+              ],
+              "next": null
+            },
+            {"cmd": "kubectl get ds log-agent -n logging -o wide", "why": "-o wide adds the CONTAINERS, IMAGES and SELECTOR columns to the DaemonSet: still counts, no node names."},
+            {"cmd": "kubectl get nodes -l app=log-agent", "why": "app=log-agent is a POD label: no node carries it, so 'No resources found'."},
+            {"cmd": "kubectl describe ds log-agent -n logging --show-nodes", "why": "describe has no --show-nodes flag (unknown flag). Its output gives Pod counts and events, not one line per node."}
+          ],
+          "explain": "DESIRED counts the nodes the DaemonSet must cover after taints and nodeSelector: 3 proves the toleration works. The NODE column of 'get pods -o wide' then shows exactly one Pod per node, control plane included. A node joining later gets its Pod automatically."
+        }
+      }
+    },
+    {
+      "id": "WRK-018",
+      "domain": "workloads",
+      "topic": "Horizontal Pod Autoscaler (autoscaling/v2)",
+      "difficulty": 3,
+      "title": "Scale on memory, shrink slowly",
+      "scenario": "Deployment 'worker' (namespace 'jobs', memory request 256Mi) needs an HPA: 2 to 10 replicas at 70% average memory utilisation. Scale-down: wait 10 minutes of calm, then remove at most 1 Pod every 2 minutes.",
+      "tip": "behavior sits under spec (scaleUp / scaleDown): stabilizationWindowSeconds + policies (type Pods or Percent, value, periodSeconds). Lost? 'kubectl explain hpa.spec.behavior --recursive'.",
+      "docs": [
+        {"title": "Horizontal Pod Autoscaling", "url": "https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/"},
+        {"title": "HorizontalPodAutoscaler Walkthrough", "url": "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale-walkthrough/"}
+      ],
+      "stakes": "With the default scale-down, warm workers vanish minutes after a burst; the next burst waits on cold Pods and the queue explodes.",
+      "analogy": "A shop closing tills: wait for 10 quiet minutes, then close one till every 2 minutes, never all at once.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 60,
+          "prompt": "Step 1 - You do not remember the fields for a slow scale-down. Show their documentation from the cluster itself.",
+          "options": [
+            {
+              "cmd": "kubectl explain hpa.spec.behavior.scaleDown",
+              "correct": true,
+              "aliases": [
+                "kubectl explain horizontalpodautoscaler.spec.behavior.scaleDown",
+                "kubectl explain hpa.spec.behavior.scaleDown --api-version=autoscaling/v2",
+                "kubectl explain hpa.spec.behavior --recursive",
+                "kubectl explain hpa.spec.behavior"
+              ],
+              "next": "s2"
+            },
+            {"cmd": "kubectl explain hpa.behavior.scaleDown", "why": "behavior sits under spec: kubectl answers that the field \"behavior\" does not exist."},
+            {
+              "cmd": "kubectl explain hpa.spec.behavior.scaleDown --api-version=autoscaling/v1",
+              "why": "autoscaling/v1 only knows a CPU target: it has no behavior field, so kubectl reports that it does not exist."
+            },
+            {"cmd": "kubectl describe hpa.spec.behavior.scaleDown", "why": "describe shows live objects, not schemas: it takes a resource type and a name, so this errors out."}
+          ],
+          "explain": "kubectl explain reads the OpenAPI schema served by YOUR cluster, so it matches v1.37 exactly and needs no browser. It lists stabilizationWindowSeconds, selectPolicy and policies (type, value, periodSeconds); --recursive prints the whole tree at once."
+        },
+        "s2": {
+          "type": "edit",
+          "time_limit": 110,
+          "filename": "hpa.yaml",
+          "prompt": "Step 2 - Type the memory metric (70% average utilisation) over the first TODO. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: autoscaling/v2",
+            "kind: HorizontalPodAutoscaler",
+            "metadata:",
+            "  name: worker",
+            "  namespace: jobs",
+            "spec:",
+            "  scaleTargetRef:",
+            "    apiVersion: apps/v1",
+            "    kind: Deployment",
+            "    name: worker",
+            "  minReplicas: 2",
+            "  maxReplicas: 10",
+            "  metrics:",
+            "  # TODO: 70% average memory utilisation",
+            "  behavior:",
+            "    # TODO: scale-down rules"
+          ],
+          "target": ["  # TODO: 70% average memory utilisation"],
+          "options": [
+            {"correct": true, "snippet": [
+                "  - type: Resource",
+                "    resource:",
+                "      name: memory",
+                "      target:",
+                "        type: Utilization",
+                "        averageUtilization: 70"]},
+            {"why": "targetAverageUtilization was the autoscaling/v2beta1 field, gone with that API: in v2 it is an unknown field and the HPA is rejected.", "snippet": [
+                "  - type: Resource",
+                "    resource:",
+                "      name: memory",
+                "      targetAverageUtilization: 70"]},
+            {"why": "type and averageUtilization belong under 'target:': here they are unknown fields of resource and the HPA is rejected.", "snippet": [
+                "  - type: Resource",
+                "    resource:",
+                "      name: memory",
+                "      type: Utilization",
+                "      averageUtilization: 70"]},
+            {"why": "averageUtilization is an integer: \"70%\" is a string, so the manifest cannot be decoded. The % sign only belongs to kubectl flags.", "snippet": [
+                "  - type: Resource",
+                "    resource:",
+                "      name: memory",
+                "      target:",
+                "        type: Utilization",
+                "        averageUtilization: 70%"]}
+          ],
+          "checks": [
+            {
+              "regex": "^  metrics:\\s*\\n  - type: Resource\\s*\\n    resource:\\s*\\n      name: memory\\s*\\n      target:\\s*\\n        type: Utilization\\s*\\n        averageUtilization: 70\\s*$",
+              "msg": "metrics: - type: Resource, resource: name: memory, target: type: Utilization, averageUtilization: 70."
+            }
+          ],
+          "forbid": [
+            {"regex": "# TODO: 70%", "msg": "The metric TODO is still there - type the snippet in its place."},
+            {"regex": "targetAverageUtilization", "msg": "targetAverageUtilization is the old v2beta1 field."}
+          ],
+          "recap": "metrics: Resource memory, target type Utilization, averageUtilization: 70 (a % of the request).",
+          "next": "s3",
+          "explain": "In autoscaling/v2 each metric has a type (Resource, Pods, Object, External, ContainerResource) and a target. Utilization is a percentage of the Pods' memory REQUEST (256Mi here, so about 180Mi on average); AverageValue would take an absolute quantity such as 200Mi."
+        },
+        "s3": {
+          "type": "edit",
+          "time_limit": 110,
+          "filename": "hpa.yaml",
+          "prompt": "Step 3 - Now the scale-down rules: 600 s of calm, then at most 1 Pod every 120 s. Replace the TODO. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: autoscaling/v2",
+            "kind: HorizontalPodAutoscaler",
+            "metadata:",
+            "  name: worker",
+            "  namespace: jobs",
+            "spec:",
+            "  scaleTargetRef:",
+            "    apiVersion: apps/v1",
+            "    kind: Deployment",
+            "    name: worker",
+            "  minReplicas: 2",
+            "  maxReplicas: 10",
+            "  metrics:",
+            "  - type: Resource",
+            "    resource:",
+            "      name: memory",
+            "      target:",
+            "        type: Utilization",
+            "        averageUtilization: 70",
+            "  behavior:",
+            "    # TODO: scale-down rules"
+          ],
+          "target": ["    # TODO: scale-down rules"],
+          "options": [
+            {"correct": true, "snippet": [
+                "    scaleDown:",
+                "      stabilizationWindowSeconds: 600",
+                "      policies:",
+                "      - type: Pods",
+                "        value: 1",
+                "        periodSeconds: 120"]},
+            {"why": "scaleUp rules slow down GROWTH (1 Pod per 2 minutes under load) while scale-down keeps its default: a 300 s window, then up to 100% of the extra Pods every 15 s.", "snippet": [
+                "    scaleUp:",
+                "      stabilizationWindowSeconds: 600",
+                "      policies:",
+                "      - type: Pods",
+                "        value: 1",
+                "        periodSeconds: 120"]},
+            {"why": "stabilizationWindowSeconds is an integer number of seconds: '10m' is a string and the manifest is rejected.", "snippet": [
+                "    scaleDown:",
+                "      stabilizationWindowSeconds: 10m",
+                "      policies:",
+                "      - type: Pods",
+                "        value: 1",
+                "        periodSeconds: 120"]},
+            {"why": "The window is a field of scaleDown, not of a policy: unknown field in policies[0], the HPA is rejected.", "snippet": [
+                "    scaleDown:",
+                "      policies:",
+                "      - type: Pods",
+                "        value: 1",
+                "        periodSeconds: 120",
+                "        stabilizationWindowSeconds: 600"]}
+          ],
+          "checks": [
+            {
+              "regex": "^  behavior:\\s*\\n    scaleDown:\\s*\\n      stabilizationWindowSeconds: 600\\s*\\n      policies:\\s*\\n      - type: Pods\\s*\\n        value: 1\\s*\\n        periodSeconds: 120\\s*$",
+              "msg": "behavior: scaleDown: stabilizationWindowSeconds: 600, then policies: - type: Pods, value: 1, periodSeconds: 120."
+            }
+          ],
+          "forbid": [
+            {"regex": "# TODO: scale-down", "msg": "The TODO is still there - type the snippet in its place."},
+            {"regex": "^\\s+scaleUp:", "msg": "scaleUp limits growth; the task is about scale-down."}
+          ],
+          "recap": "behavior.scaleDown: stabilizationWindowSeconds: 600 + policy type Pods, value 1, periodSeconds 120.",
+          "next": "s4",
+          "explain": "During the 600 s window the HPA keeps the HIGHEST recommendation it saw, so a short dip shrinks nothing. Then the Pods policy removes at most 1 Pod per 120 s. With several policies, selectPolicy (Max by default) picks the one allowing the biggest change."
+        },
+        "s4": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "$ kubectl apply -f hpa.yaml",
+            "horizontalpodautoscaler.autoscaling/worker created",
+            "$ kubectl get hpa worker -n jobs",
+            "NAME     REFERENCE           TARGETS           MINPODS   MAXPODS   REPLICAS   AGE",
+            "worker   Deployment/worker   memory: 41%/70%   2         10        2          90s"
+          ],
+          "prompt": "Step 4 - Check what the HPA stored and decided: its metric, scale-down behavior, conditions and events.",
+          "options": [
+            {
+              "cmd": "kubectl describe hpa worker -n jobs",
+              "correct": true,
+              "aliases": [
+                "kubectl -n jobs describe hpa worker",
+                "kubectl describe horizontalpodautoscaler worker -n jobs",
+                "kubectl get hpa worker -n jobs -o yaml"
+              ],
+              "next": null
+            },
+            {"cmd": "kubectl top hpa worker -n jobs", "why": "kubectl top only knows nodes and pods: it rejects 'hpa' as a resource."},
+            {"cmd": "kubectl get hpa worker -n jobs -o wide", "why": "The HPA table stays the same (TARGETS, MINPODS, MAXPODS, REPLICAS): no behavior, no conditions, no events."},
+            {"cmd": "kubectl describe deployment worker -n jobs", "why": "The Deployment does not know it is autoscaled: you would see replica changes, not the target or the scale-down rules."}
+          ],
+          "explain": "describe shows the metric as current / target, the stored behavior (scale-down window and policies, defaults filled in for scaleUp), the conditions AbleToScale, ScalingActive and ScalingLimited with their reasons, and an event for each rescale."
+        }
+      }
+    },
+    {
       "id": "STO-001",
       "domain": "storage",
       "topic": "PV / PVC binding",
@@ -5014,6 +6228,393 @@
             {"cmd": "kubectl restart pod logger", "why": "There is no 'kubectl restart' command."}
           ],
           "explain": "emptyDir is created when the Pod is assigned to a node and deleted with the Pod; a container crash or restart keeps it. Use a PVC for data that must outlive the Pod."
+        }
+      }
+    },
+    {
+      "id": "STO-011",
+      "domain": "storage",
+      "topic": "StatefulSet volumeClaimTemplates",
+      "difficulty": 3,
+      "title": "One disk per replica, kept on delete",
+      "scenario": "StatefulSet 'db' (namespace 'data', 3 replicas, image redis:7.4) must give EACH replica its own 1Gi ReadWriteOnce volume at /data, from the default StorageClass. The data must survive a deletion of the StatefulSet.",
+      "tip": "Claims are named <template>-<statefulset>-<ordinal> (data-db-0). By default they outlive the StatefulSet; persistentVolumeClaimRetentionPolicy (whenDeleted / whenScaled) changes that.",
+      "docs": [
+        {"title": "StatefulSets", "url": "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"},
+        {"title": "StatefulSet Basics", "url": "https://kubernetes.io/docs/tutorials/stateful-application/basic-stateful-set/"}
+      ],
+      "stakes": "Set whenDeleted: Delete and one 'kubectl delete sts' wipes every replica's claim, and with it the data.",
+      "analogy": "Named lockers: seat db-1 always gets locker data-db-1, even after the classroom is torn down and rebuilt.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "edit",
+          "time_limit": 120,
+          "filename": "sts.yaml",
+          "prompt": "Step 1 - Give each replica its own claim 'data' (1Gi, ReadWriteOnce): replace the TODO line. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: apps/v1",
+            "kind: StatefulSet",
+            "metadata:",
+            "  name: db",
+            "  namespace: data",
+            "spec:",
+            "  serviceName: db",
+            "  replicas: 3",
+            "  selector:",
+            "    matchLabels:",
+            "      app: db",
+            "  template:",
+            "    metadata:",
+            "      labels:",
+            "        app: db",
+            "    spec:",
+            "      containers:",
+            "      - name: redis",
+            "        image: redis:7.4",
+            "        volumeMounts:",
+            "        - name: data",
+            "          mountPath: /data",
+            "  # TODO: one claim per replica"
+          ],
+          "target": ["  # TODO: one claim per replica"],
+          "options": [
+            {"correct": true, "snippet": [
+                "  volumeClaimTemplates:",
+                "  - metadata:",
+                "      name: data",
+                "    spec:",
+                "      accessModes: [\"ReadWriteOnce\"]",
+                "      resources:",
+                "        requests:",
+                "          storage: 1Gi"]},
+            {"why": "Each template is a whole PersistentVolumeClaim: its name goes under metadata. 'name' at item level is an unknown field and the StatefulSet is rejected.", "snippet": [
+                "  volumeClaimTemplates:",
+                "  - name: data",
+                "    spec:",
+                "      accessModes: [\"ReadWriteOnce\"]",
+                "      resources:",
+                "        requests:",
+                "          storage: 1Gi"]},
+            {"why": "The container mounts a volume named 'data': with a template named db-data that mount matches no volume (volumeMounts[0].name: Not found) and no replica starts.", "snippet": [
+                "  volumeClaimTemplates:",
+                "  - metadata:",
+                "      name: db-data",
+                "    spec:",
+                "      accessModes: [\"ReadWriteOnce\"]",
+                "      resources:",
+                "        requests:",
+                "          storage: 1Gi"]},
+            {"why": "volumes is a Pod field: at StatefulSet level it is unknown. Even in the template, all 3 replicas would share ONE claim 'data' instead of one each.", "snippet": [
+                "  volumes:",
+                "  - name: data",
+                "    persistentVolumeClaim:",
+                "      claimName: data"]}
+          ],
+          "checks": [
+            {"regex": "^  volumeClaimTemplates:\\s*\\n  - metadata:\\s*\\n      name: data\\s*\\n    spec:\\s*$", "msg": "volumeClaimTemplates: - metadata: name: data, then spec: (the claim spec)."},
+            {"regex": "^    spec:\\s*\\n      accessModes:\\s*\\[\\s*\\\"?ReadWriteOnce\\\"?\\s*\\]\\s*$", "msg": "The claim spec needs accessModes: [\"ReadWriteOnce\"]."},
+            {"regex": "^      resources:\\s*\\n        requests:\\s*\\n          storage:\\s*\\\"?1Gi\\\"?\\s*$", "msg": "The claim asks resources.requests.storage: 1Gi."}
+          ],
+          "forbid": [
+            {"regex": "# TODO", "msg": "The TODO comment is still there - type the snippet in its place."},
+            {"regex": "^  volumes:", "msg": "volumes is a Pod field: one claim per replica needs volumeClaimTemplates."}
+          ],
+          "recap": "volumeClaimTemplates: - metadata: {name: data}, spec: RWO, requests.storage 1Gi (name = the volumeMount's).",
+          "next": "s2",
+          "explain": "The controller creates one claim per replica from the template and gives each Pod ITS claim by ordinal. A plain volumes/persistentVolumeClaim entry would make all replicas share one RWO claim. Without storageClassName the default class is used."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "$ kubectl apply -f sts.yaml",
+            "statefulset.apps/db created",
+            "$ kubectl get pods -n data",
+            "NAME   READY   STATUS    RESTARTS   AGE",
+            "db-0   1/1     Running   0          70s",
+            "db-1   1/1     Running   0          50s",
+            "db-2   1/1     Running   0          30s"
+          ],
+          "prompt": "Step 2 - Replica db-1 reports a full disk. Show ITS claim, and only that one.",
+          "options": [
+            {
+              "cmd": "kubectl get pvc data-db-1 -n data",
+              "correct": true,
+              "aliases": [
+                "kubectl -n data get pvc data-db-1",
+                "kubectl get persistentvolumeclaim data-db-1 -n data",
+                "kubectl describe pvc data-db-1 -n data"
+              ],
+              "next": "s3"
+            },
+            {"cmd": "kubectl get pvc db-1-data -n data", "why": "Wrong order: claims are named <template>-<statefulset>-<ordinal>, so NotFound."},
+            {"cmd": "kubectl get pvc data-1 -n data", "why": "The StatefulSet name is part of the claim name (two StatefulSets may both use a template 'data'): NotFound."},
+            {"cmd": "kubectl get pvc data -n data", "why": "'data' is only the template: no claim has that name, every replica gets its own suffixed copy. NotFound."}
+          ],
+          "explain": "Claim name = template + StatefulSet + ordinal: data-db-1 belongs to Pod db-1 for good. Because the name is stable, a rescheduled or recreated db-1 finds the same claim, and the same data, by name."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 100,
+          "context": [
+            "$ kubectl get sts db -n data -o jsonpath='{.spec.persistentVolumeClaimRetentionPolicy}'",
+            "{\"whenDeleted\":\"Retain\",\"whenScaled\":\"Retain\"}"
+          ],
+          "prompt": "Step 3 - New policy: keep the claims if the StatefulSet is deleted, but delete the claim of a replica removed by a scale-down. Patch it.",
+          "options": [
+            {
+              "cmd": "kubectl patch sts db -n data -p '{\"spec\":{\"persistentVolumeClaimRetentionPolicy\":{\"whenScaled\":\"Delete\"}}}'",
+              "correct": true,
+              "aliases": [
+                "kubectl patch statefulset db -n data -p '{\"spec\":{\"persistentVolumeClaimRetentionPolicy\":{\"whenScaled\":\"Delete\"}}}'",
+                "kubectl -n data patch sts db -p '{\"spec\":{\"persistentVolumeClaimRetentionPolicy\":{\"whenScaled\":\"Delete\"}}}'",
+                "kubectl patch sts db -n data --type=merge -p '{\"spec\":{\"persistentVolumeClaimRetentionPolicy\":{\"whenScaled\":\"Delete\"}}}'"
+              ],
+              "next": "s4"
+            },
+            {
+              "cmd": "kubectl patch sts db -n data -p '{\"spec\":{\"persistentVolumeClaimRetentionPolicy\":{\"whenDeleted\":\"Delete\"}}}'",
+              "why": "That deletes ALL claims when the StatefulSet is deleted (and the data too with a Delete reclaim policy): the opposite of the requirement."
+            },
+            {
+              "cmd": "kubectl patch pvc data-db-2 -n data -p '{\"spec\":{\"persistentVolumeReclaimPolicy\":\"Delete\"}}'",
+              "why": "persistentVolumeReclaimPolicy is a PV field: on a claim kubectl only warns 'unknown field' and nothing changes. Claim retention is decided by the StatefulSet."
+            },
+            {
+              "cmd": "kubectl patch sts db -n data -p '{\"spec\":{\"persistentVolumeClaimRetentionPolicy\":{\"whenScaled\":\"Remove\"}}}'",
+              "why": "Only Retain and Delete exist: the API rejects 'Remove' (Unsupported value)."
+            }
+          ],
+          "explain": "With whenScaled: Delete the controller makes a condemned Pod the owner of its claim, so the garbage collector removes data-db-2 after db-2 is gone on a scale-down. whenDeleted keeps its default Retain. The policy is one of the few StatefulSet fields you may update."
+        },
+        "s4": {
+          "type": "command",
+          "time_limit": 75,
+          "context": [
+            "$ kubectl delete sts db -n data && kubectl apply -f sts.yaml",
+            "statefulset.apps \"db\" deleted",
+            "statefulset.apps/db created",
+            "$ kubectl get pvc -n data",
+            "NAME        STATUS   VOLUME                                     CAPACITY   ACCESS MODES   AGE",
+            "data-db-0   Bound    pvc-0b7e2c1a-5d3f-4e8b-9a61-7c2d4f8e1a3b   1Gi        RWO            2h",
+            "data-db-1   Bound    pvc-5c9d1e7f-2a4b-4c6d-8e0f-1a2b3c4d5e6f   1Gi        RWO            2h",
+            "data-db-2   Bound    pvc-9e8d7c6b-5a4f-4e3d-a2c1-b0a9f8e7d6c5   1Gi        RWO            2h"
+          ],
+          "prompt": "Step 4 - The StatefulSet was deleted and re-applied. Prove that the new Pod db-0 mounts the OLD claim data-db-0.",
+          "options": [
+            {
+              "cmd": "kubectl describe pod db-0 -n data",
+              "correct": true,
+              "aliases": [
+                "kubectl -n data describe pod db-0",
+                "kubectl describe po db-0 -n data",
+                "kubectl get pod db-0 -n data -o yaml",
+                "kubectl describe pvc data-db-0 -n data"
+              ],
+              "next": null
+            },
+            {"cmd": "kubectl describe sts db -n data", "why": "The StatefulSet shows the claim TEMPLATE ('Volume Claims: Name: data'), not which claim a given Pod mounts."},
+            {"cmd": "kubectl get pv -n data", "why": "PVs are cluster-scoped (-n is ignored): CLAIM shows data/data-db-0 because that binding never changed. It says nothing about the new Pod."},
+            {"cmd": "kubectl get pvc data-db-0 -n data -o wide", "why": "The claim table has no column for the Pods using it: 'Used By' only appears in 'kubectl describe pvc'."}
+          ],
+          "explain": "The recreated Pod has the same name, so the controller looks for claim data-db-0, finds it (Retain kept it) and reuses it instead of provisioning a new volume: Volumes shows ClaimName: data-db-0, and the claims' AGE proves they were never re-created."
+        }
+      }
+    },
+    {
+      "id": "STO-012",
+      "domain": "storage",
+      "topic": "Access modes (RWO, RWOP, ROX) and read-only mounts",
+      "difficulty": 3,
+      "title": "One writer, read-only readers",
+      "scenario": "In namespace 'ledger', two Pods on the same node both write to claim 'ledger-data' (ReadWriteOnce, CSI class 'csi-standard') and corrupt it. Only ONE Pod in the cluster may ever write the ledger. Pod 'report' must read claim 'archive' without being able to change it.",
+      "tip": "RWO = one NODE (its Pods share the volume). RWOP = one Pod cluster-wide (CSI only). Access modes never make a mount read-only: readOnly: true does.",
+      "docs": [
+        {"title": "Persistent Volumes", "url": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"},
+        {"title": "Volumes", "url": "https://kubernetes.io/docs/concepts/storage/volumes/"}
+      ],
+      "stakes": "Two writers on one RWO volume look fine for weeks, until both flush at once and the ledger is corrupted for good.",
+      "analogy": "RWO locks the house, not the room: everyone inside may write. RWOP hands the only key to one person.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "$ kubectl get pods -n ledger -o wide",
+            "NAME              READY   STATUS    RESTARTS   AGE   IP            NODE",
+            "ledger-writer     1/1     Running   0          3d    10.244.1.12   node01",
+            "ledger-writer-2   1/1     Running   0          2h    10.244.1.31   node01"
+          ],
+          "prompt": "Step 1 - Confirm which Pods currently use the claim 'ledger-data'.",
+          "options": [
+            {
+              "cmd": "kubectl describe pvc ledger-data -n ledger",
+              "correct": true,
+              "aliases": [
+                "kubectl -n ledger describe pvc ledger-data",
+                "kubectl describe persistentvolumeclaim ledger-data -n ledger"
+              ],
+              "next": "s2"
+            },
+            {"cmd": "kubectl get pvc ledger-data -n ledger -o wide", "why": "-o wide adds volume details (VOLUMEMODE...), never a Pod column: the claim table does not say who mounts it."},
+            {"cmd": "kubectl describe pv ledger-data", "why": "ledger-data is the CLAIM; its PV has a generated name (pvc-<uid>), so NotFound. A PV does not list Pods either."},
+            {
+              "cmd": "kubectl get pods -n ledger --field-selector=spec.volumes.claimName=ledger-data",
+              "why": "Pods support only a few field selectors (spec.nodeName, status.phase...): the API rejects this field label as not supported."
+            }
+          ],
+          "explain": "describe pvc shows 'Used By:' with every Pod mounting the claim: both writers. ReadWriteOnce only limits the NODE that mounts the volume read-write; all Pods on that node may use it, so the claim allowed exactly what happened."
+        },
+        "s2": {
+          "type": "edit",
+          "time_limit": 90,
+          "filename": "pvc.yaml",
+          "prompt": "Step 2 - A claim's access modes cannot change: you write a new claim 'ledger-data-v2'. Make it usable by a single Pod in the whole cluster. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: v1",
+            "kind: PersistentVolumeClaim",
+            "metadata:",
+            "  name: ledger-data-v2",
+            "  namespace: ledger",
+            "spec:",
+            "  storageClassName: csi-standard",
+            "  accessModes:",
+            "  - ReadWriteOnce",
+            "  resources:",
+            "    requests:",
+            "      storage: 5Gi"
+          ],
+          "target": ["  - ReadWriteOnce"],
+          "options": [
+            {"correct": true, "snippet": [
+                "  - ReadWriteOncePod"]},
+            {"why": "ReadWriteOncePod cannot be combined with other access modes: the API rejects the claim.", "snippet": [
+                "  - ReadWriteOnce",
+                "  - ReadWriteOncePod"]},
+            {"why": "RWOP is only the abbreviation kubectl prints: the API takes full names and rejects it (Unsupported value).", "snippet": [
+                "  - RWOP"]},
+            {"why": "ReadOnlyMany lets MANY nodes mount the volume: it limits nothing to one Pod, and the writer is not meant to get a read-only volume.", "snippet": [
+                "  - ReadOnlyMany"]}
+          ],
+          "checks": [
+            {"regex": "^  accessModes:\\s*\\n  - ReadWriteOncePod\\s*\\n  resources:", "msg": "accessModes must hold ReadWriteOncePod, and nothing else."}
+          ],
+          "forbid": [
+            {"regex": "^  - ReadWriteOnce\\s*$", "msg": "ReadWriteOnce still allows every Pod of the node."},
+            {"regex": "RWOP", "msg": "RWOP is an abbreviation: write ReadWriteOncePod."}
+          ],
+          "recap": "accessModes: [ReadWriteOncePod] alone, on a NEW claim (access modes are immutable).",
+          "next": "s3",
+          "explain": "ReadWriteOncePod (GA since v1.29, CSI volumes only) lets a single Pod in the whole cluster use the volume, and the scheduler enforces it: a second Pod using the claim is not scheduled. ReadWriteOnce would again let every Pod on the same node write."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "$ kubectl apply -f pvc.yaml -f writers.yaml   # both writers now use ledger-data-v2",
+            "$ kubectl get pods -n ledger",
+            "NAME              READY   STATUS    RESTARTS   AGE",
+            "ledger-writer     1/1     Running   0          40s",
+            "ledger-writer-2   0/1     Pending   0          40s"
+          ],
+          "prompt": "Step 3 - ledger-writer-2 stays Pending, as intended. Show the scheduler's reason.",
+          "options": [
+            {
+              "cmd": "kubectl describe pod ledger-writer-2 -n ledger",
+              "correct": true,
+              "aliases": [
+                "kubectl -n ledger describe pod ledger-writer-2",
+                "kubectl describe po ledger-writer-2 -n ledger",
+                "kubectl events -n ledger --for pod/ledger-writer-2"
+              ],
+              "next": "s4"
+            },
+            {"cmd": "kubectl logs ledger-writer-2 -n ledger", "why": "A Pending Pod has no started container: logs returns an error, not the reason. The scheduler's verdict is an event of the Pod."},
+            {"cmd": "kubectl describe node node01", "why": "The Pod was never placed on a node: node01's description knows nothing about it."},
+            {"cmd": "kubectl get pod ledger-writer-2 -n ledger -o wide", "why": "The table only says Pending with NODE <none>: it shows that it waits, not why."}
+          ],
+          "explain": "The FailedScheduling event names the ReadWriteOncePod conflict: a Pod already uses the claim, so the scheduler refuses a second user on ANY node, not only node01. ledger-writer-2 can only be scheduled once ledger-writer is gone."
+        },
+        "s4": {
+          "type": "edit",
+          "time_limit": 90,
+          "filename": "report.yaml",
+          "prompt": "Step 4 - Claim 'archive' is ReadOnlyMany, yet 'report' could write to it. Make its mount read-only. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: v1",
+            "kind: Pod",
+            "metadata:",
+            "  name: report",
+            "  namespace: ledger",
+            "spec:",
+            "  containers:",
+            "  - name: report",
+            "    image: busybox:1.36",
+            "    command: [\"sleep\", \"infinity\"]",
+            "    volumeMounts:",
+            "    - name: archive",
+            "      mountPath: /archive",
+            "  volumes:",
+            "  - name: archive",
+            "    persistentVolumeClaim:",
+            "      claimName: archive"
+          ],
+          "target": ["    - name: archive", "      mountPath: /archive"],
+          "options": [
+            {"correct": true, "snippet": [
+                "    - name: archive",
+                "      mountPath: /archive",
+                "      readOnly: true"]},
+            {"why": "':ro' is Docker syntax: here it is part of the path, and the volume is mounted read-write at a directory literally named '/archive:ro'.", "snippet": [
+                "    - name: archive",
+                "      mountPath: /archive:ro"]},
+            {"why": "Field names are case-sensitive: 'readonly' is an unknown field and the Pod is rejected (strict field validation).", "snippet": [
+                "    - name: archive",
+                "      mountPath: /archive",
+                "      readonly: true"]},
+            {"why": "Access modes belong to claims and PVs, not to mounts: unknown field, the Pod is rejected.", "snippet": [
+                "    - name: archive",
+                "      mountPath: /archive",
+                "      accessModes: [\"ReadOnlyMany\"]"]}
+          ],
+          "checks": [
+            {"regex": "^    - name: archive\\s*\\n      mountPath: /archive\\s*\\n      readOnly: true\\s*$", "msg": "The volumeMount needs readOnly: true (camelCase), under mountPath: /archive."}
+          ],
+          "forbid": [
+            {"regex": "^\\s+readonly:", "msg": "The field is readOnly (camelCase)."},
+            {"regex": "/archive:ro", "msg": "':ro' is not Kubernetes syntax."},
+            {"regex": "^\\s+accessModes:", "msg": "A volumeMount has no accessModes."}
+          ],
+          "recap": "volumeMounts: readOnly: true (an access mode alone never makes a mount read-only).",
+          "next": "s5",
+          "explain": "Access modes are matching rules between claims and volumes; the docs warn they do not enforce write protection once mounted. readOnly: true on the volumeMount makes the kubelet mount it read-only for this container (persistentVolumeClaim.readOnly does it for the whole volume)."
+        },
+        "s5": {
+          "type": "command",
+          "time_limit": 60,
+          "context": ["$ kubectl apply -f report.yaml", "pod/report created"],
+          "prompt": "Step 5 - Prove that 'report' really cannot write to /archive.",
+          "options": [
+            {
+              "cmd": "kubectl exec report -n ledger -- touch /archive/probe",
+              "correct": true,
+              "aliases": [
+                "kubectl -n ledger exec report -- touch /archive/probe",
+                "kubectl exec -n ledger report -- touch /archive/probe",
+                "kubectl exec report -n ledger -- sh -c 'echo x > /archive/probe'"
+              ],
+              "next": null
+            },
+            {"cmd": "kubectl exec report -n ledger -- ls -l /archive", "why": "ls shows permission bits, not mount options: a read-only mount still lists rw- files. Only a write attempt proves it."},
+            {"cmd": "kubectl describe pvc archive -n ledger", "why": "It shows Access Modes: ROX, which the docs say does not enforce write protection: no proof at all."},
+            {
+              "cmd": "kubectl get pod report -n ledger -o jsonpath='{.spec.volumes}'",
+              "why": "volumes only names the claim: readOnly sits on the container's volumeMounts, so no flag is shown, and a setting is not a proof anyway."
+            }
+          ],
+          "explain": "The write must fail with 'Read-only file system' and a non-zero exit code: the kernel refuses it whatever the file permissions or the claim's access mode. If the file gets created, the mount is still read-write."
         }
       }
     },
@@ -6207,7 +7808,7 @@
                 "  - protocol: HTTP",
                 "    port: 80",
                 "    hostname: \"*.example.com\""]},
-            {"why": "HTTPS requires a tls section with certificateRefs: validation rejects it, and the task asks for HTTP.", "snippet": [
+            {"why": "HTTPS needs a tls section with a certificate: without one the listener cannot serve TLS and is not programmed, and the task asks for HTTP.", "snippet": [
                 "  listeners:",
                 "  - name: http",
                 "    protocol: HTTPS",
@@ -6726,6 +8327,642 @@
             }
           ],
           "explain": "The answer must be a CNAME: 'billing.payments.svc.cluster.local canonical name = billing.partner.example.com'. An IP here would mean a normal Service, not an ExternalName."
+        }
+      }
+    },
+    {
+      "id": "NET-021",
+      "domain": "networking",
+      "topic": "Services (LoadBalancer)",
+      "difficulty": 2,
+      "title": "A LoadBalancer stuck in <pending>",
+      "scenario": "Bare-metal kubeadm cluster: no cloud controller manager, no MetalLB. Deployment 'shop-api' (namespace 'shop') listens on 8080. Expose it as LoadBalancer Service 'shop-lb' on port 80, then find a way in while the external IP is missing.",
+      "tip": "type LoadBalancer = ClusterIP + NodePort + an external IP that SOMEONE must provide (cloud controller, MetalLB). Without one: <pending> forever, NodePort still works.",
+      "docs": [
+        {"title": "Service", "url": "https://kubernetes.io/docs/concepts/services-networking/service/"},
+        {"title": "Create an External Load Balancer", "url": "https://kubernetes.io/docs/tasks/access-application-cluster/create-external-load-balancer/"}
+      ],
+      "stakes": "You wait for an external IP that no controller will ever assign, while the NodePort already worked.",
+      "analogy": "Ordering a taxi in a town with no taxi company: the booking is saved, the car never comes. Walk (NodePort).",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 90,
+          "prompt": "Step 1 - Create Service 'shop-lb' (type LoadBalancer, port 80 -> container port 8080) for Deployment 'shop-api'.",
+          "options": [
+            {"cmd": "kubectl expose deployment shop-api --name=shop-lb --port=80 --target-port=8080 --type=LoadBalancer -n shop", "correct": true, "next": "s2"},
+            {
+              "cmd": "kubectl create service loadbalancer shop-lb --tcp=80:8080 -n shop",
+              "why": "create service sets the selector app=shop-lb, which matches none of the shop-api Pods: the Service has no endpoints."
+            },
+            {
+              "cmd": "kubectl expose deployment shop-api --name=shop-lb --port=80 --target-port=8080 --type=LoadBalancer",
+              "why": "No '-n shop': kubectl looks for Deployment shop-api in 'default' and answers NotFound."
+            },
+            {
+              "cmd": "kubectl expose deployment shop-api --name=shop-lb --port=8080 --target-port=80 --type=LoadBalancer -n shop",
+              "why": "Ports swapped: the Service listens on 8080 and sends to container port 80, where nothing listens."
+            }
+          ],
+          "explain": "expose copies the Deployment's selector, so the Service reaches the shop-api Pods; --port is the Service port, --target-port the container's. 'create service loadbalancer' would invent the selector app=shop-lb and match nothing."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "$ kubectl get svc shop-lb -n shop",
+            "NAME      TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE",
+            "shop-lb   LoadBalancer   10.104.33.17   <pending>     80:31547/TCP   6m"
+          ],
+          "prompt": "Step 2 - EXTERNAL-IP is still <pending> after 6 minutes. Show the Service's NodePort, Endpoints and Events in one view.",
+          "options": [
+            {
+              "cmd": "kubectl describe svc shop-lb -n shop",
+              "correct": true,
+              "aliases": ["kubectl describe service shop-lb -n shop", "kubectl describe services shop-lb -n shop"],
+              "next": "s3"
+            },
+            {"cmd": "kubectl get svc shop-lb -n shop -o wide", "why": "Adds only the SELECTOR column: no endpoints and no events, so you cannot see that no controller ever acted."},
+            {"cmd": "kubectl describe svc shop-lb", "why": "No '-n shop': the Service lives in 'shop', so 'default' answers NotFound."},
+            {"cmd": "kubectl get events -n kube-system", "why": "Service events are recorded in the Service's own namespace ('shop'), and there are none for it here anyway."}
+          ],
+          "explain": "On a cloud, the service controller of the cloud controller manager logs EnsuringLoadBalancer / EnsuredLoadBalancer events and fills status.loadBalancer. Here describe shows a NodePort and Endpoints but no such events: nobody provisions load balancers, so <pending> never ends."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 90,
+          "prompt": "Step 3 - Until MetalLB is installed, users will connect to <node-IP>:<port>. Print the port that is open on every node.",
+          "options": [
+            {
+              "cmd": "kubectl get svc shop-lb -n shop -o jsonpath='{.spec.ports[0].nodePort}'",
+              "correct": true,
+              "aliases": [
+                "kubectl get svc shop-lb -n shop -o jsonpath=\"{.spec.ports[0].nodePort}\"",
+                "kubectl get service shop-lb -n shop -o jsonpath='{.spec.ports[0].nodePort}'"
+              ],
+              "next": null
+            },
+            {
+              "cmd": "kubectl get svc shop-lb -n shop -o jsonpath='{.status.loadBalancer.ingress[0].ip}'",
+              "why": "status.loadBalancer is filled by a load balancer controller: with none, it is empty and prints nothing."
+            },
+            {"cmd": "kubectl get svc shop-lb -n shop -o jsonpath='{.spec.ports[0].targetPort}'", "why": "Prints 8080, the container port: it is reachable only on the Pod IPs, not on the nodes."},
+            {"cmd": "kubectl get svc shop-lb -n shop -o jsonpath='{.spec.clusterIP}'", "why": "The ClusterIP is virtual and answers only inside the cluster: outside users cannot reach it."}
+          ],
+          "explain": "A LoadBalancer Service is built on a NodePort Service: the node port (31547 here) is allocated at once, unless allocateLoadBalancerNodePorts is false, so http://<any-node-IP>:31547 works already. An external load balancer would only forward to those node ports."
+        }
+      }
+    },
+    {
+      "id": "NET-022",
+      "domain": "networking",
+      "topic": "Services without selector (EndpointSlice)",
+      "difficulty": 3,
+      "title": "A stable name for an external database",
+      "scenario": "Apps in namespace 'shop' must reach the legacy PostgreSQL at 10.20.30.40:5432 (outside the cluster, no DNS name) as 'legacy-db:5432'. Use a Service WITHOUT selector, port named 'postgres', and an EndpointSlice you write yourself.",
+      "tip": "No selector = you own the endpoints. The EndpointSlice needs the label kubernetes.io/service-name=<svc> and a port whose name matches the Service port's name.",
+      "docs": [
+        {"title": "Service", "url": "https://kubernetes.io/docs/concepts/services-networking/service/"},
+        {"title": "EndpointSlices", "url": "https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/"}
+      ],
+      "stakes": "One wrong label or port name and the Service answers nothing, with no error anywhere: the database seems down to every app.",
+      "analogy": "A switchboard extension wired by hand: the number (Service) works only once you plug the cable (EndpointSlice) into it.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 90,
+          "prompt": "Step 1 - Generate a Service manifest 'legacy-db' (port 5432) in svc.yaml without creating it yet.",
+          "options": [
+            {
+              "cmd": "kubectl create service clusterip legacy-db --tcp=5432:5432 -n shop --dry-run=client -o yaml > svc.yaml",
+              "correct": true,
+              "aliases": [
+                "kubectl create svc clusterip legacy-db --tcp=5432:5432 -n shop --dry-run=client -o yaml > svc.yaml"
+              ],
+              "next": "s2"
+            },
+            {
+              "cmd": "kubectl create service externalname legacy-db --external-name=10.20.30.40 -n shop",
+              "why": "ExternalName takes a DNS name: the IP is accepted but treated as a name made of digits, so CoreDNS returns a CNAME that never resolves."
+            },
+            {
+              "cmd": "kubectl expose deployment legacy-db --port=5432 -n shop --dry-run=client -o yaml > svc.yaml",
+              "why": "expose needs an existing object to copy a selector from: there is no Deployment legacy-db, so it fails with NotFound."
+            },
+            {"cmd": "kubectl create service clusterip legacy-db --tcp=5432:5432 -n shop", "why": "Creates the Service at once WITH the selector app=legacy-db: you need a file first, to remove that selector."}
+          ],
+          "explain": "kubectl cannot create a Service without selector: 'create service clusterip' always adds app=<name>. A dry-run file gives the right skeleton (port, namespace) to edit. ExternalName would only be a CNAME, and an IP is not a DNS name."
+        },
+        "s2": {
+          "type": "edit",
+          "time_limit": 100,
+          "filename": "svc.yaml",
+          "prompt": "Step 2 - Name the port 'postgres' and remove the selector: retype the ports/selector block. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: v1",
+            "kind: Service",
+            "metadata:",
+            "  labels:",
+            "    app: legacy-db",
+            "  name: legacy-db",
+            "  namespace: shop",
+            "spec:",
+            "  ports:",
+            "  - name: 5432-5432",
+            "    port: 5432",
+            "    protocol: TCP",
+            "    targetPort: 5432",
+            "  selector:",
+            "    app: legacy-db",
+            "  type: ClusterIP",
+            "status:",
+            "  loadBalancer: {}"
+          ],
+          "target": [
+            "  ports:",
+            "  - name: 5432-5432",
+            "    port: 5432",
+            "    protocol: TCP",
+            "    targetPort: 5432",
+            "  selector:",
+            "    app: legacy-db"
+          ],
+          "checks": [
+            {"regex": "^  ports:\\s*\\n  - name: postgres\\s*\\n    port: 5432\\s*$", "msg": "Keep 'ports:' with one item '- name: postgres' and 'port: 5432'."}
+          ],
+          "forbid": [
+            {"regex": "^  selector:", "msg": "Remove the selector: with one, the control plane manages (empty) endpoints for this Service."},
+            {"regex": "externalIPs", "msg": "externalIPs captures traffic sent TO an IP; it does not send traffic there."},
+            {"regex": "5432-5432", "msg": "Rename the port to 'postgres' (the EndpointSlice will use that name)."}
+          ],
+          "options": [
+            {"correct": true, "snippet": [
+                "  ports:",
+                "  - name: postgres",
+                "    port: 5432",
+                "    protocol: TCP",
+                "    targetPort: 5432"]},
+            {"why": "The selector app=legacy-db stays: Kubernetes keeps managing this Service's endpoints from Pods, and no Pod matches.", "snippet": [
+                "  ports:",
+                "  - name: postgres",
+                "    port: 5432",
+                "    protocol: TCP",
+                "    targetPort: 5432",
+                "  selector:",
+                "    app: legacy-db"]},
+            {"why": "externalIPs makes kube-proxy capture traffic sent TO 10.20.30.40:5432 and send it to the Service's endpoints: it creates no endpoint and hijacks the real DB IP in-cluster.", "snippet": [
+                "  ports:",
+                "  - name: postgres",
+                "    port: 5432",
+                "    protocol: TCP",
+                "    targetPort: 5432",
+                "  externalIPs:",
+                "  - 10.20.30.40"]}
+          ],
+          "recap": "Service legacy-db: port 'postgres' 5432, no selector.",
+          "next": "s3",
+          "explain": "A Service without selector tells the control plane not to compute endpoints: you supply them in an EndpointSlice. The port name matters because kube-proxy matches the slice's ports to the Service's ports by name."
+        },
+        "s3": {
+          "type": "edit",
+          "time_limit": 120,
+          "filename": "slice.yaml",
+          "prompt": "Step 3 - svc.yaml is applied. Write the EndpointSlice body in place of the TODO comment. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: discovery.k8s.io/v1",
+            "kind: EndpointSlice",
+            "metadata:",
+            "  name: legacy-db-1",
+            "  namespace: shop",
+            "  # TODO: link to Service legacy-db; IPv4 endpoint 10.20.30.40, port 'postgres' 5432"
+          ],
+          "target": ["  # TODO: link to Service legacy-db; IPv4 endpoint 10.20.30.40, port 'postgres' 5432"],
+          "checks": [
+            {"regex": "^  labels:\\s*\\n    kubernetes\\.io/service-name: legacy-db\\s*$", "msg": "Label the slice kubernetes.io/service-name: legacy-db (that label links it to the Service)."},
+            {"regex": "^addressType: IPv4\\s*$", "msg": "Set addressType: IPv4 at the top level."},
+            {"regex": "^ports:\\s*\\n- name: postgres\\s*\\n  port: 5432\\s*$", "msg": "The slice port must be named 'postgres', like the Service port, with port 5432."},
+            {"regex": "^endpoints:\\s*\\n- addresses: \\[\\s*\"?10\\.20\\.30\\.40\"?\\s*\\]\\s*$", "msg": "One endpoint: '- addresses: [\"10.20.30.40\"]' (an IP only, no port)."}
+          ],
+          "forbid": [
+            {"regex": "# TODO", "msg": "The TODO comment is still there - type the snippet in its place."}
+          ],
+          "options": [
+            {"correct": true, "snippet": [
+                "  labels:",
+                "    kubernetes.io/service-name: legacy-db",
+                "addressType: IPv4",
+                "ports:",
+                "- name: postgres",
+                "  port: 5432",
+                "endpoints:",
+                "- addresses: [\"10.20.30.40\"]"]},
+            {"why": "app=legacy-db links nothing: Services find their slices only by kubernetes.io/service-name, so legacy-db keeps no endpoints.", "snippet": [
+                "  labels:",
+                "    app: legacy-db",
+                "addressType: IPv4",
+                "ports:",
+                "- name: postgres",
+                "  port: 5432",
+                "endpoints:",
+                "- addresses: [\"10.20.30.40\"]"]},
+            {"why": "Port 'db' does not match the Service port 'postgres': kube-proxy finds no endpoint for that port and connections are rejected.", "snippet": [
+                "  labels:",
+                "    kubernetes.io/service-name: legacy-db",
+                "addressType: IPv4",
+                "ports:",
+                "- name: db",
+                "  port: 5432",
+                "endpoints:",
+                "- addresses: [\"10.20.30.40\"]"]},
+            {"why": "addresses holds bare IPs: '10.20.30.40:5432' is not a valid IPv4 address, so the API server rejects the slice.", "snippet": [
+                "  labels:",
+                "    kubernetes.io/service-name: legacy-db",
+                "addressType: IPv4",
+                "ports:",
+                "- name: postgres",
+                "  port: 5432",
+                "endpoints:",
+                "- addresses: [\"10.20.30.40:5432\"]"]}
+          ],
+          "recap": "EndpointSlice: label kubernetes.io/service-name, addressType IPv4, port 'postgres' 5432, address 10.20.30.40.",
+          "next": "s4",
+          "explain": "kube-proxy builds the Service's rules from every slice labelled kubernetes.io/service-name=legacy-db, matching ports by name. The address is a bare IP and the port lives in 'ports', so legacy-db.shop:5432 now leads to 10.20.30.40:5432."
+        },
+        "s4": {
+          "type": "command",
+          "time_limit": 60,
+          "prompt": "Step 4 - Applied. List the EndpointSlices that back Service legacy-db (expect 10.20.30.40 and port 5432).",
+          "options": [
+            {
+              "cmd": "kubectl get endpointslices -n shop -l kubernetes.io/service-name=legacy-db",
+              "correct": true,
+              "aliases": [
+                "kubectl get endpointslice -n shop -l kubernetes.io/service-name=legacy-db",
+                "kubectl get endpointslices -l kubernetes.io/service-name=legacy-db -n shop"
+              ],
+              "next": null
+            },
+            {"cmd": "kubectl get endpoints legacy-db -n shop", "why": "Nothing creates an Endpoints object from a hand-written slice: NotFound (and the Endpoints API is deprecated)."},
+            {"cmd": "kubectl get endpointslices -n shop -l app=legacy-db", "why": "The slice carries kubernetes.io/service-name, not app: 'No resources found'."},
+            {"cmd": "kubectl get endpointslices -l kubernetes.io/service-name=legacy-db", "why": "No '-n shop': the slice is namespaced, so 'default' shows 'No resources found'."}
+          ],
+          "explain": "Selecting by kubernetes.io/service-name shows exactly what the Service uses, whatever the slices are named. ENDPOINTS 10.20.30.40 and PORTS 5432 prove the link; an empty list means the label or the namespace is wrong."
+        }
+      }
+    },
+    {
+      "id": "NET-023",
+      "domain": "networking",
+      "topic": "Gateway API (HTTPS listener, cross-namespace routes)",
+      "difficulty": 3,
+      "title": "HTTPS Gateway shared with another namespace",
+      "scenario": "GatewayClass 'envoy' is installed. The platform team owns Gateway 'secure-gw' in namespace 'infra'; the app team in namespace 'shop' must attach its HTTPRoute. Terminate HTTPS for shop.example.com with tls.crt/tls.key (current directory).",
+      "tip": "HTTPS listener = tls.mode Terminate + certificateRefs to a kubernetes.io/tls Secret in the Gateway's namespace. Routes from other namespaces need allowedRoutes AND parentRefs.namespace.",
+      "docs": [
+        {"title": "Gateway API", "url": "https://kubernetes.io/docs/concepts/services-networking/gateway/"},
+        {"title": "TLS (Gateway API)", "url": "https://gateway-api.sigs.k8s.io/guides/user-guides/tls/"},
+        {"title": "Cross-Namespace routing", "url": "https://gateway-api.sigs.k8s.io/guides/user-guides/multiple-ns/"}
+      ],
+      "stakes": "allowedRoutes left at Same and the app team's route is silently refused: the site is down and their YAML looks perfect.",
+      "analogy": "A shared building entrance: the owner holds the keys (certificate) and keeps the list of tenants allowed to put up their signs.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 75,
+          "prompt": "Step 1 - Store the certificate and key as Secret 'shop-tls' where the Gateway can use it.",
+          "options": [
+            {
+              "cmd": "kubectl create secret tls shop-tls --cert=tls.crt --key=tls.key -n infra",
+              "correct": true,
+              "aliases": ["kubectl create secret tls shop-tls --key=tls.key --cert=tls.crt -n infra"],
+              "next": "s2"
+            },
+            {
+              "cmd": "kubectl create secret tls shop-tls --cert=tls.crt --key=tls.key -n shop",
+              "why": "A Secret in 'shop' is in another namespace than the Gateway: without a ReferenceGrant the listener reports ResolvedRefs=False."
+            },
+            {
+              "cmd": "kubectl create secret tls shop-tls --from-file=tls.crt --from-file=tls.key -n infra",
+              "why": "'secret tls' has no --from-file flag (that is 'secret generic'): kubectl stops with 'unknown flag'."
+            },
+            {"cmd": "kubectl create secret tls shop-tls --cert=tls.key --key=tls.crt -n infra", "why": "Cert and key swapped: kubectl checks the pair and fails (PEM inputs may have been switched)."}
+          ],
+          "explain": "'create secret tls' checks that the pair matches and stores it as type kubernetes.io/tls with keys tls.crt and tls.key, the format certificateRefs expects. The Secret belongs in the Gateway's namespace (infra): another namespace would need a ReferenceGrant."
+        },
+        "s2": {
+          "type": "edit",
+          "time_limit": 100,
+          "filename": "gateway.yaml",
+          "prompt": "Step 2 - Configure TLS on the https listener: type the right snippet in place of the TODO comment. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: gateway.networking.k8s.io/v1",
+            "kind: Gateway",
+            "metadata:",
+            "  name: secure-gw",
+            "  namespace: infra",
+            "spec:",
+            "  gatewayClassName: envoy",
+            "  listeners:",
+            "  - name: https",
+            "    protocol: HTTPS",
+            "    port: 443",
+            "    hostname: shop.example.com",
+            "    # TODO: terminate TLS here with Secret shop-tls"
+          ],
+          "target": ["    # TODO: terminate TLS here with Secret shop-tls"],
+          "checks": [
+            {
+              "regex": "^    tls:\\s*\\n      mode: Terminate\\s*\\n      certificateRefs:\\s*\\n      - name: shop-tls\\s*$",
+              "msg": "Under the listener: tls -> mode Terminate -> certificateRefs -> '- name: shop-tls'."
+            }
+          ],
+          "forbid": [
+            {"regex": "Passthrough", "msg": "Passthrough is for protocol TLS; an HTTPS listener terminates TLS."},
+            {"regex": "secretName", "msg": "secretName is the Ingress field; a Gateway uses certificateRefs."},
+            {"regex": "# TODO", "msg": "The TODO comment is still there - type the snippet in its place."}
+          ],
+          "options": [
+            {"correct": true, "snippet": [
+                "    tls:",
+                "      mode: Terminate",
+                "      certificateRefs:",
+                "      - name: shop-tls"]},
+            {"why": "Passthrough does not decrypt (it is for protocol TLS with TLSRoute): the API rejects it on an HTTPS listener, and paths could not be matched.", "snippet": [
+                "    tls:",
+                "      mode: Passthrough",
+                "      certificateRefs:",
+                "      - name: shop-tls"]},
+            {"why": "secretName is the Ingress syntax: kubectl reports an unknown field, and Terminate without certificateRefs fails validation.", "snippet": [
+                "    tls:",
+                "      mode: Terminate",
+                "      secretName: shop-tls"]}
+          ],
+          "recap": "listener tls: mode Terminate, certificateRefs - name: shop-tls.",
+          "next": "s3",
+          "explain": "Terminate means the Gateway decrypts with the certificate from certificateRefs (kind Secret and the Gateway's namespace by default), then reads the HTTP request so HTTPRoutes can match hosts and paths. Passthrough sends encrypted bytes on untouched."
+        },
+        "s3": {
+          "type": "edit",
+          "time_limit": 110,
+          "filename": "gateway.yaml",
+          "context": [
+            "$ kubectl get ns shop --show-labels",
+            "NAME   STATUS   AGE   LABELS",
+            "shop   Active   41d   kubernetes.io/metadata.name=shop"
+          ],
+          "prompt": "Step 3 - By default only routes from 'infra' may attach. Allow routes from namespace 'shop' only. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: gateway.networking.k8s.io/v1",
+            "kind: Gateway",
+            "metadata:",
+            "  name: secure-gw",
+            "  namespace: infra",
+            "spec:",
+            "  gatewayClassName: envoy",
+            "  listeners:",
+            "  - name: https",
+            "    protocol: HTTPS",
+            "    port: 443",
+            "    hostname: shop.example.com",
+            "    tls:",
+            "      mode: Terminate",
+            "      certificateRefs:",
+            "      - name: shop-tls",
+            "    # TODO: accept routes from namespace 'shop' only"
+          ],
+          "target": ["    # TODO: accept routes from namespace 'shop' only"],
+          "checks": [
+            {
+              "regex": "^    allowedRoutes:\\s*\\n      namespaces:\\s*\\n        from: Selector\\s*\\n        selector:\\s*\\n          matchLabels:\\s*\\n            kubernetes\\.io/metadata\\.name: \"?shop\"?\\s*$",
+              "msg": "allowedRoutes -> namespaces -> from: Selector + selector.matchLabels kubernetes.io/metadata.name: shop."
+            }
+          ],
+          "forbid": [
+            {"regex": "from: All", "msg": "All lets every namespace attach routes for shop.example.com."},
+            {"regex": "# TODO", "msg": "The TODO comment is still there - type the snippet in its place."}
+          ],
+          "options": [
+            {"correct": true, "snippet": [
+                "    allowedRoutes:",
+                "      namespaces:",
+                "        from: Selector",
+                "        selector:",
+                "          matchLabels:",
+                "            kubernetes.io/metadata.name: shop"]},
+            {"why": "Works for 'shop' but also for every other namespace: any team could attach a route and capture shop.example.com traffic.", "snippet": [
+                "    allowedRoutes:",
+                "      namespaces:",
+                "        from: All"]},
+            {"why": "The namespace has no label 'name' (see the context): the selector matches nothing and the route is NotAllowedByListeners.", "snippet": [
+                "    allowedRoutes:",
+                "      namespaces:",
+                "        from: Selector",
+                "        selector:",
+                "          matchLabels:",
+                "            name: shop"]},
+            {"why": "Without 'from: Selector', from keeps its default Same: the selector is not used and routes from 'shop' are still refused.", "snippet": [
+                "    allowedRoutes:",
+                "      namespaces:",
+                "        selector:",
+                "          matchLabels:",
+                "            kubernetes.io/metadata.name: shop"]}
+          ],
+          "recap": "allowedRoutes.namespaces: from Selector, matchLabels kubernetes.io/metadata.name: shop.",
+          "next": "s4",
+          "explain": "A listener accepts routes only from its own namespace by default (from: Same). from: Selector with the automatic label kubernetes.io/metadata.name opens it to 'shop' alone; All would let any namespace claim the hostname."
+        },
+        "s4": {
+          "type": "edit",
+          "time_limit": 100,
+          "filename": "route.yaml",
+          "prompt": "Step 4 - In namespace 'shop', attach the route to the https listener of secure-gw. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: gateway.networking.k8s.io/v1",
+            "kind: HTTPRoute",
+            "metadata:",
+            "  name: shop-route",
+            "  namespace: shop",
+            "spec:",
+            "  # TODO: attach to listener 'https' of Gateway secure-gw (namespace infra)",
+            "  hostnames:",
+            "  - shop.example.com",
+            "  rules:",
+            "  - backendRefs:",
+            "    - name: shop-web",
+            "      port: 8080"
+          ],
+          "target": ["  # TODO: attach to listener 'https' of Gateway secure-gw (namespace infra)"],
+          "checks": [
+            {"regex": "^  parentRefs:\\s*\\n  - name: secure-gw\\s*\\n    namespace: infra\\s*\\n    sectionName: https\\s*$", "msg": "parentRefs: '- name: secure-gw', 'namespace: infra', 'sectionName: https'."}
+          ],
+          "forbid": [
+            {"regex": "# TODO", "msg": "The TODO comment is still there - type the snippet in its place."}
+          ],
+          "options": [
+            {"correct": true, "snippet": [
+                "  parentRefs:",
+                "  - name: secure-gw",
+                "    namespace: infra",
+                "    sectionName: https"]},
+            {"why": "Without namespace, the parent is looked up in the route's own namespace (shop): no Gateway secure-gw there, so nothing attaches.", "snippet": [
+                "  parentRefs:",
+                "  - name: secure-gw",
+                "    sectionName: https"]},
+            {"why": "parentRefs has no 'namespace/name' form: it points to a Gateway literally named 'infra/secure-gw' in shop, which does not exist.", "snippet": [
+                "  parentRefs:",
+                "  - name: infra/secure-gw",
+                "    sectionName: https"]},
+            {"why": "sectionName is the listener's name, matched exactly: the listener is 'https', not 'HTTPS', so the route finds no matching parent.", "snippet": [
+                "  parentRefs:",
+                "  - name: secure-gw",
+                "    namespace: infra",
+                "    sectionName: HTTPS"]}
+          ],
+          "recap": "parentRefs: name secure-gw, namespace infra, sectionName https.",
+          "next": "s5",
+          "explain": "parentRefs defaults to the route's own namespace, so a cross-namespace Gateway needs namespace: infra. sectionName pins the route to the listener named 'https'. Both sides must agree: the listener's allowedRoutes admits 'shop'."
+        },
+        "s5": {
+          "type": "command",
+          "time_limit": 60,
+          "prompt": "Step 5 - Applied. From the Gateway side, check the https listener: its conditions (ResolvedRefs for the certificate) and its attached routes.",
+          "options": [
+            {
+              "cmd": "kubectl describe gateway secure-gw -n infra",
+              "correct": true,
+              "aliases": [
+                "kubectl describe gateways secure-gw -n infra",
+                "kubectl describe gtw secure-gw -n infra",
+                "kubectl get gateway secure-gw -n infra -o yaml"
+              ],
+              "next": null
+            },
+            {"cmd": "kubectl get gateway secure-gw -n infra", "why": "The table shows CLASS, ADDRESS and PROGRAMMED only: no listener conditions, no attached route count."},
+            {"cmd": "kubectl describe gateway secure-gw -n shop", "why": "The Gateway lives in 'infra'; the route is in 'shop': NotFound."},
+            {"cmd": "kubectl describe gatewayclass envoy", "why": "Shows the controller and whether the class is accepted, nothing about this Gateway's listeners."}
+          ],
+          "explain": "status.listeners reports per listener: Attached Routes (1 once shop-route is admitted), ResolvedRefs (False if the Secret is missing, in another namespace or not kubernetes.io/tls) and Programmed. The route's own view is in 'describe httproute'."
+        }
+      }
+    },
+    {
+      "id": "NET-024",
+      "domain": "networking",
+      "topic": "Ingress (TLS)",
+      "difficulty": 2,
+      "title": "Serve an Ingress over HTTPS",
+      "scenario": "Ingress 'store' (namespace 'store', class nginx) routes store.example.com to web-svc:80 over plain HTTP. The certificate and key are in store.crt and store.key. Serve the site over HTTPS.",
+      "tip": "Ingress TLS = a kubernetes.io/tls Secret in the Ingress's namespace + spec.tls: - hosts: [same host as the rule], secretName. describe shows 'SECRET terminates HOST'.",
+      "docs": [
+        {"title": "Ingress", "url": "https://kubernetes.io/docs/concepts/services-networking/ingress/"},
+        {"title": "Secrets", "url": "https://kubernetes.io/docs/concepts/configuration/secret/"}
+      ],
+      "stakes": "A wrong host or Secret and the controller serves its default self-signed certificate: every browser shows a warning.",
+      "analogy": "The ID badge only opens doors for the names printed on it: tls.hosts must list the host the rule serves.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 75,
+          "prompt": "Step 1 - Store the certificate and key as Secret 'store-tls' where the Ingress can use it.",
+          "options": [
+            {
+              "cmd": "kubectl create secret tls store-tls --cert=store.crt --key=store.key -n store",
+              "correct": true,
+              "aliases": ["kubectl create secret tls store-tls --key=store.key --cert=store.crt -n store"],
+              "next": "s2"
+            },
+            {
+              "cmd": "kubectl create secret generic store-tls --from-file=store.crt --from-file=store.key -n store",
+              "why": "Keys are named store.crt/store.key and the type is Opaque: the controller looks for tls.crt/tls.key and serves its default certificate."
+            },
+            {"cmd": "kubectl create secret tls store-tls --cert=store.crt --key=store.key", "why": "No '-n store': the Secret lands in 'default', and an Ingress can only use Secrets of its own namespace."}
+          ],
+          "explain": "'create secret tls' stores the pair as type kubernetes.io/tls under the keys tls.crt and tls.key, the format Ingress controllers read, after checking that key and certificate match. It must sit in the Ingress's namespace: secretName has no namespace field."
+        },
+        "s2": {
+          "type": "edit",
+          "time_limit": 100,
+          "filename": "ingress.yaml",
+          "prompt": "Step 2 - Add the TLS section: type the right snippet in place of the TODO comment. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: networking.k8s.io/v1",
+            "kind: Ingress",
+            "metadata:",
+            "  name: store",
+            "  namespace: store",
+            "spec:",
+            "  ingressClassName: nginx",
+            "  # TODO: serve store.example.com over HTTPS with Secret store-tls",
+            "  rules:",
+            "  - host: store.example.com",
+            "    http:",
+            "      paths:",
+            "      - path: /",
+            "        pathType: Prefix",
+            "        backend:",
+            "          service:",
+            "            name: web-svc",
+            "            port:",
+            "              number: 80"
+          ],
+          "target": ["  # TODO: serve store.example.com over HTTPS with Secret store-tls"],
+          "checks": [
+            {
+              "regex": "^  tls:\\s*\\n  - hosts:\\s*\\n    - \"?store\\.example\\.com\"?\\s*\\n    secretName: store-tls\\s*$",
+              "msg": "tls is a list: '- hosts:' with '- store.example.com', then 'secretName: store-tls' in the same item."
+            }
+          ],
+          "forbid": [
+            {"regex": "certificateRefs", "msg": "certificateRefs is Gateway API; an Ingress uses secretName."},
+            {"regex": "# TODO", "msg": "The TODO comment is still there - type the snippet in its place."}
+          ],
+          "options": [
+            {"correct": true, "snippet": [
+                "  tls:",
+                "  - hosts:",
+                "    - store.example.com",
+                "    secretName: store-tls"]},
+            {"why": "spec.tls is a list of items: without the dash it is an object and the API server rejects the Ingress.", "snippet": [
+                "  tls:",
+                "    hosts:",
+                "    - store.example.com",
+                "    secretName: store-tls"]},
+            {"why": "tls.hosts must name the rule's host: store.example.com is not covered, so the controller serves its default certificate for it.", "snippet": [
+                "  tls:",
+                "  - hosts:",
+                "    - www.store.example.com",
+                "    secretName: store-tls"]},
+            {"why": "certificateRefs belongs to the Gateway API: kubectl reports an unknown field, and without secretName no certificate is set.", "snippet": [
+                "  tls:",
+                "  - hosts:",
+                "    - store.example.com",
+                "    certificateRefs:",
+                "    - name: store-tls"]}
+          ],
+          "recap": "spec.tls: - hosts: [store.example.com], secretName: store-tls.",
+          "next": "s3",
+          "explain": "Each spec.tls item says: for these hosts, terminate TLS with this Secret. The hosts must match the rules' host, or the controller falls back to its default certificate; the Secret is looked up in the Ingress's own namespace."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 60,
+          "prompt": "Step 3 - Applied. Show which Secret terminates TLS for which host on this Ingress.",
+          "options": [
+            {
+              "cmd": "kubectl describe ingress store -n store",
+              "correct": true,
+              "aliases": ["kubectl describe ing store -n store", "kubectl describe ingresses store -n store"],
+              "next": null
+            },
+            {"cmd": "kubectl get ingress store -n store", "why": "PORTS '80, 443' only says that a tls section exists: not which Secret or which hosts."},
+            {"cmd": "kubectl describe secret store-tls -n store", "why": "Shows the Secret's type and key sizes, not whether an Ingress uses it."},
+            {"cmd": "kubectl describe ingress store", "why": "No '-n store': the Ingress lives in 'store', so 'default' answers NotFound."}
+          ],
+          "explain": "describe prints a TLS line 'store-tls terminates store.example.com' next to the rules, so a host mismatch is visible at once. Then test from outside with curl -v https://store.example.com and read the certificate subject."
         }
       }
     },
@@ -9803,6 +12040,828 @@
             {"cmd": "tail -n 30 /var/log/pods/etcd/*.log", "why": "Pod log directories are named <namespace>_<pod>_<uid>, with one subdirectory per container."}
           ],
           "explain": "Layout: /var/log/pods/<ns>_<pod>_<uid>/<container>/<restart>.log; /var/log/containers/ holds symlinks named <pod>_<ns>_<container>-<id>.log. Both survive while the API server is down."
+        }
+      }
+    },
+    {
+      "id": "TRB-031",
+      "domain": "troubleshooting",
+      "topic": "Node maintenance (PodDisruptionBudget)",
+      "difficulty": 2,
+      "title": "A drain blocked by a disruption budget",
+      "scenario": "Cluster: controlplane, node01, node02. 'kubectl drain node01 --ignore-daemonsets --delete-emptydir-data' kept retrying, so you stopped it. Deployment 'web' (namespace default, 2 replicas) must keep its availability guarantee.",
+      "tip": "drain evicts through the Eviction API, which honours PodDisruptionBudgets. ALLOWED DISRUPTIONS 0 = drain retries forever: add replicas (or relax the PDB), never delete it blindly.",
+      "docs": [
+        {"title": "Specifying a Disruption Budget for your Application", "url": "https://kubernetes.io/docs/tasks/run-application/configure-pdb/"},
+        {"title": "Safely Drain a Node", "url": "https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/"},
+        {"title": "Disruptions", "url": "https://kubernetes.io/docs/concepts/workloads/pods/disruptions/"}
+      ],
+      "stakes": "minAvailable equal to the replica count blocks every drain: the upgrade window closes with nothing done.",
+      "analogy": "'At least 2 cashiers open' with exactly 2 cashiers: nobody takes a break until a third one arrives.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 45,
+          "context": [
+            "$ kubectl drain node01 --ignore-daemonsets --delete-emptydir-data",
+            "node/node01 cordoned",
+            "Warning: ignoring DaemonSet-managed Pods: kube-system/kube-proxy-7xq2m",
+            "evicting pod default/web-7d4b9c6f8-2xkqp",
+            "evicting pod default/web-7d4b9c6f8-h8vnl",
+            "error when evicting pods/\"web-7d4b9c6f8-2xkqp\" -n \"default\" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.",
+            "error when evicting pods/\"web-7d4b9c6f8-h8vnl\" -n \"default\" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.",
+            "^C"
+          ],
+          "prompt": "Step 1 - The eviction is refused: list the PodDisruptionBudgets of namespace default.",
+          "options": [
+            {
+              "cmd": "kubectl get pdb",
+              "correct": true,
+              "aliases": [
+                "kubectl get pdb -n default",
+                "kubectl get poddisruptionbudgets",
+                "kubectl get poddisruptionbudget"
+              ],
+              "next": "s2"
+            },
+            {"cmd": "kubectl get pdb -n kube-system", "why": "The blocked Pods live in default (-n \"default\" in the error): a budget only covers Pods of its own namespace, kube-system holds nothing relevant."},
+            {"cmd": "kubectl get disruptionbudgets", "why": "No such resource type: the server answers 'doesn't have a resource type'. The short name is pdb, the full one poddisruptionbudgets."},
+            {"cmd": "kubectl describe node node01", "why": "Shows the node's Pods and that it is cordoned, not the budget that refuses the eviction."}
+          ],
+          "explain": "drain does not delete Pods: it calls the Eviction API, which checks every PodDisruptionBudget selecting the Pod. 'violate the pod's disruption budget' means a PDB of the Pod's namespace allows 0 disruptions right now. Without --timeout, drain retries every 5 s forever."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "$ kubectl get pdb",
+            "NAME      MIN AVAILABLE   MAX UNAVAILABLE   ALLOWED DISRUPTIONS   AGE",
+            "web-pdb   2               N/A               0                     12d",
+            "$ kubectl get deploy web",
+            "NAME   READY   UP-TO-DATE   AVAILABLE   AGE",
+            "web    2/2     2            2           12d"
+          ],
+          "prompt": "Step 2 - Keep minAvailable 2 but make room: scale Deployment web to 3 replicas.",
+          "options": [
+            {
+              "cmd": "kubectl scale deployment web --replicas=3",
+              "correct": true,
+              "aliases": [
+                "kubectl scale deploy web --replicas=3",
+                "kubectl scale deploy/web --replicas=3",
+                "kubectl scale deployment/web --replicas=3",
+                "kubectl scale --replicas=3 deployment web",
+                "kubectl scale --replicas=3 deploy/web",
+                "kubectl scale --replicas=3 deploy web"
+              ],
+              "next": "s3"
+            },
+            {"cmd": "kubectl scale pdb web-pdb --replicas=3", "why": "A PodDisruptionBudget has no scale subresource: kubectl refuses it. Replicas belong to the Deployment."},
+            {"cmd": "kubectl delete pdb web-pdb", "why": "The drain would pass, but the guarantee is gone: both web Pods could be evicted at once, now and at every later drain."},
+            {"cmd": "kubectl scale deployment web --replicas=1", "why": "1 healthy Pod for minAvailable 2: ALLOWED DISRUPTIONS stays 0 and you lose half the capacity."}
+          ],
+          "explain": "ALLOWED DISRUPTIONS = healthy Pods - minAvailable = 2 - 2 = 0: no voluntary eviction can pass. A third replica (on node02, node01 is cordoned) makes it 3 - 2 = 1: drain evicts one Pod, waits for its replacement to be Ready, then the next."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 75,
+          "context": [
+            "$ kubectl get pdb web-pdb",
+            "NAME      MIN AVAILABLE   MAX UNAVAILABLE   ALLOWED DISRUPTIONS   AGE",
+            "web-pdb   2               N/A               1                     12d"
+          ],
+          "prompt": "Step 3 - Finish the drain of node01 (it runs DaemonSet Pods and Pods with emptyDir volumes).",
+          "options": [
+            {
+              "cmd": "kubectl drain node01 --ignore-daemonsets --delete-emptydir-data",
+              "correct": true,
+              "aliases": ["kubectl drain node01 --delete-emptydir-data --ignore-daemonsets"],
+              "next": null
+            },
+            {
+              "cmd": "kubectl drain node01 --ignore-daemonsets --delete-emptydir-data --disable-eviction",
+              "why": "Deletes the Pods directly, bypassing every PodDisruptionBudget: both web Pods of node01 could go at once. Keep it for a budget that can never be met."
+            },
+            {"cmd": "kubectl uncordon node01", "why": "Makes node01 schedulable again: nothing is evicted and the maintenance cannot start."},
+            {"cmd": "kubectl drain node01", "why": "Refuses at once: DaemonSet-managed Pods and emptyDir data need --ignore-daemonsets and --delete-emptydir-data."}
+          ],
+          "explain": "With 1 disruption allowed, the Eviction API accepts one web Pod, refuses the second until its replacement is Ready on node02, and drain simply retries until 'node/node01 drained'. Scale web back to 2 after the maintenance if the extra replica is not wanted."
+        }
+      }
+    },
+    {
+      "id": "TRB-032",
+      "domain": "troubleshooting",
+      "topic": "DaemonSets (taints and tolerations)",
+      "difficulty": 2,
+      "title": "A DaemonSet that skips the control plane",
+      "scenario": "DaemonSet 'node-exporter' (namespace 'monitoring') must run on EVERY node, the control plane included. The cluster has 3 nodes (controlplane, node01, node02), but the DaemonSet shows DESIRED 2.",
+      "tip": "DESIRED below the node count and no Pending Pod? A taint. A DaemonSet gets automatic tolerations for node problems (not-ready, pressure...), never for the control-plane taint.",
+      "docs": [
+        {"title": "DaemonSet", "url": "https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/"},
+        {"title": "Taints and Tolerations", "url": "https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/"}
+      ],
+      "stakes": "The monitoring agent misses the control plane: the node you most need to watch becomes the blind spot.",
+      "analogy": "A 'staff only' door: the cleaning crew skips that room until it is handed a staff pass.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 50,
+          "context": [
+            "$ kubectl get ds node-exporter -n monitoring",
+            "NAME            DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE",
+            "node-exporter   2         2         2       2            2           <none>          3d"
+          ],
+          "prompt": "Step 1 - No node selector, yet one node is skipped. Display the taints of node controlplane.",
+          "options": [
+            {
+              "cmd": "kubectl describe node controlplane | grep -i taints",
+              "correct": true,
+              "aliases": [
+                "kubectl describe node controlplane | grep Taints",
+                "kubectl describe nodes controlplane | grep -i taints",
+                "kubectl get node controlplane -o jsonpath='{.spec.taints}'"
+              ],
+              "next": "s2"
+            },
+            {"cmd": "kubectl describe ds node-exporter -n monitoring | grep -i taints", "why": "A DaemonSet has no taints: its Pod template may carry tolerations, but taints live on Nodes."},
+            {"cmd": "kubectl get node controlplane --show-labels", "why": "Shows node-role.kubernetes.io/control-plane as a LABEL; the taint with the same key lives in spec.taints and is not listed here."},
+            {"cmd": "kubectl get pods -n monitoring -o wide", "why": "Shows that no Pod runs on controlplane, which DESIRED 2 already told you, not why."}
+          ],
+          "explain": "DESIRED counts the nodes where the DaemonSet controller wants a Pod; a node whose taints the template does not tolerate is simply left out, so no Pending Pod and no event appear. With no node selector a taint is the usual cause: kubeadm taints control-plane nodes NoSchedule."
+        },
+        "s2": {
+          "type": "edit",
+          "time_limit": 110,
+          "filename": "ds.yaml",
+          "context": ["Taints:             node-role.kubernetes.io/control-plane:NoSchedule"],
+          "prompt": "Step 2 - 'kubectl edit ds node-exporter -n monitoring': type the snippet over the line '      containers:' (it ends with that line). Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: apps/v1",
+            "kind: DaemonSet",
+            "metadata:",
+            "  name: node-exporter",
+            "  namespace: monitoring",
+            "spec:",
+            "  selector:",
+            "    matchLabels:",
+            "      app: node-exporter",
+            "  template:",
+            "    metadata:",
+            "      labels:",
+            "        app: node-exporter",
+            "    spec:",
+            "      containers:",
+            "      - name: node-exporter",
+            "        image: quay.io/prometheus/node-exporter:v1.9.1",
+            "        ports:",
+            "        - containerPort: 9100",
+            "          hostPort: 9100",
+            "      hostNetwork: true",
+            "      hostPID: true"
+          ],
+          "checks": [
+            {
+              "regex": "^      tolerations:\\s*\\n      - key: \\\"?node-role\\.kubernetes\\.io/control-plane\\\"?\\s*\\n        operator: \\\"?Exists\\\"?\\s*\\n        effect: \\\"?NoSchedule\\\"?\\s*\\n      containers:",
+              "msg": "Under template.spec (6 spaces): tolerations with key node-role.kubernetes.io/control-plane, operator Exists, effect NoSchedule, right before containers."
+            }
+          ],
+          "forbid": [
+            {"regex": "node-role\\.kubernetes\\.io/master", "msg": "The 'master' taint key is gone since v1.25."},
+            {"regex": "NoExecute", "msg": "The taint's effect is NoSchedule, not NoExecute."},
+            {"regex": "^\\s+value:", "msg": "The control-plane taint has no value: use operator Exists."}
+          ],
+          "target": ["      containers:"],
+          "options": [
+            {"correct": true, "snippet": [
+                "      tolerations:",
+                "      - key: node-role.kubernetes.io/control-plane",
+                "        operator: Exists",
+                "        effect: NoSchedule",
+                "      containers:"]},
+            {"why": "kubeadm stopped applying the 'master' taint in v1.25: this toleration matches nothing, DESIRED stays 2.", "snippet": [
+                "      tolerations:",
+                "      - key: node-role.kubernetes.io/master",
+                "        operator: Exists",
+                "        effect: NoSchedule",
+                "      containers:"]},
+            {"why": "The taint has an EMPTY value: Equal with value \"true\" does not match it. Use Exists (or Equal with no value).", "snippet": [
+                "      tolerations:",
+                "      - key: node-role.kubernetes.io/control-plane",
+                "        operator: Equal",
+                "        value: \"true\"",
+                "        effect: NoSchedule",
+                "      containers:"]},
+            {"why": "A toleration only matches the same effect (or every effect when it is empty): NoExecute does not tolerate a NoSchedule taint.", "snippet": [
+                "      tolerations:",
+                "      - key: node-role.kubernetes.io/control-plane",
+                "        operator: Exists",
+                "        effect: NoExecute",
+                "      containers:"]}
+          ],
+          "recap": "tolerations: key node-role.kubernetes.io/control-plane, operator Exists, effect NoSchedule, in the Pod template spec.",
+          "next": "s3",
+          "explain": "The toleration belongs in the Pod TEMPLATE spec (spec.template.spec), next to containers: the controller then counts controlplane and creates its Pod. Exists matches the taint whatever its value; the effect must be NoSchedule (or empty, for every effect)."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 50,
+          "context": ["daemonset.apps/node-exporter edited"],
+          "prompt": "Step 3 - Check that a node-exporter Pod now runs on controlplane (show the node of each Pod).",
+          "options": [
+            {
+              "cmd": "kubectl get pods -n monitoring -o wide",
+              "correct": true,
+              "aliases": [
+                "kubectl get pods -n monitoring -l app=node-exporter -o wide",
+                "kubectl get pod -n monitoring -o wide",
+                "kubectl get po -n monitoring -o wide"
+              ],
+              "next": null
+            },
+            {"cmd": "kubectl get ds node-exporter -n monitoring -o wide", "why": "DESIRED 3 is a good sign, but -o wide only adds containers, images and selector: never the node of each Pod."},
+            {"cmd": "kubectl get pods -n monitoring --show-labels", "why": "Adds the labels, not the NODE column: you cannot see where each Pod runs."},
+            {"cmd": "kubectl get nodes -o wide", "why": "Lists the nodes with their IPs and runtime, not the Pods running on them."}
+          ],
+          "explain": "-o wide adds the NODE column: expect three Pods, one per node, controlplane included (and DESIRED 3 on the DaemonSet). Each DaemonSet Pod is pinned to its node by a node affinity on the node name, so it never drifts elsewhere."
+        }
+      }
+    },
+    {
+      "id": "TRB-033",
+      "domain": "troubleshooting",
+      "topic": "Services (targetPort mismatch)",
+      "difficulty": 2,
+      "title": "Endpoints, yet connection refused",
+      "scenario": "Service 'web' (namespace default, port 80) has endpoints, but every call from inside the cluster is refused. The Pods of Deployment 'web' are Running and Ready.",
+      "tip": "Endpoints present + 'Connection refused' = the targetPort is not where the app listens. No endpoints = selector or readiness. A silent time-out = suspect a NetworkPolicy.",
+      "docs": [
+        {"title": "Debug Services", "url": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/"},
+        {"title": "Service", "url": "https://kubernetes.io/docs/concepts/services-networking/service/"}
+      ],
+      "stakes": "Everything looks green, Pods Ready and endpoints present, yet every request is refused because of one port number.",
+      "analogy": "The right building, the wrong door number: the address is valid, but nobody waits behind that door.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 45,
+          "context": [
+            "$ kubectl run t --rm -it --image=busybox:1.36 --restart=Never -- wget -qO- -T 3 web",
+            "wget: can't connect to remote host (10.96.112.45): Connection refused"
+          ],
+          "prompt": "Step 1 - Show the Service's selector, port, TargetPort and endpoints in one view.",
+          "options": [
+            {
+              "cmd": "kubectl describe svc web",
+              "correct": true,
+              "aliases": ["kubectl describe service web", "kubectl describe services web"],
+              "next": "s2"
+            },
+            {"cmd": "kubectl get svc web", "why": "PORT(S) shows 80/TCP, the Service port only: neither the targetPort nor the endpoints."},
+            {"cmd": "kubectl get svc web --show-labels", "why": "Shows the Service's own labels, not its selector, target port or endpoints."},
+            {"cmd": "kubectl describe pod web", "why": "No Pod is named 'web': Deployment Pods carry ReplicaSet and random suffixes."}
+          ],
+          "explain": "'Connection refused' is not a time-out: something answered with a reset. The Service does route, but to a port where nothing listens. describe shows Port, TargetPort and the endpoint addresses with their port side by side."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 50,
+          "context": [
+            "Selector:          app=web",
+            "Port:              http  80/TCP",
+            "TargetPort:        80/TCP",
+            "Endpoints:         10.244.1.12:80,10.244.2.9:80"
+          ],
+          "prompt": "Step 2 - Show the port declared by the container of Deployment 'web'.",
+          "options": [
+            {
+              "cmd": "kubectl describe deploy web",
+              "correct": true,
+              "aliases": ["kubectl describe deployment web", "kubectl describe deployments web"],
+              "next": "s3"
+            },
+            {"cmd": "kubectl get deploy web -o wide", "why": "Adds the CONTAINERS, IMAGES and SELECTOR columns, not the container ports."},
+            {"cmd": "kubectl get pods -l app=web -o wide", "why": "Shows Pod IPs and nodes: the IPs match the endpoints, but no port."},
+            {"cmd": "kubectl get endpointslices -l kubernetes.io/service-name=web", "why": "Repeats what describe said (endpoints on port 80): where the Service sends traffic, not where the app listens."}
+          ],
+          "explain": "The Pod template in describe lists each container's Port. containerPort is informative (it opens nothing), but here it is what the app really binds: 8080. Traffic sent to 80 hits a closed port and the Pod's kernel answers with a reset: refused."
+        },
+        "s3": {
+          "type": "edit",
+          "time_limit": 100,
+          "filename": "svc.yaml",
+          "context": ["    Image:         nginxinc/nginx-unprivileged:1.27", "    Port:          8080/TCP"],
+          "prompt": "Step 3 - 'kubectl edit svc web': type the corrected port lines over the current ones. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: v1",
+            "kind: Service",
+            "metadata:",
+            "  name: web",
+            "  namespace: default",
+            "spec:",
+            "  type: ClusterIP",
+            "  ports:",
+            "  - name: http",
+            "    port: 80",
+            "    protocol: TCP",
+            "    targetPort: 80",
+            "  selector:",
+            "    app: web"
+          ],
+          "checks": [
+            {"regex": "^    port: 80\\s*$", "msg": "Clients call port 80: keep 'port: 80'."},
+            {"regex": "^    protocol: TCP\\s*$", "msg": "HTTP needs protocol: TCP."},
+            {"regex": "^    targetPort: 8080\\s*$", "msg": "targetPort must be 8080, the container's port."}
+          ],
+          "forbid": [],
+          "target": ["    port: 80", "    protocol: TCP", "    targetPort: 80"],
+          "options": [
+            {"correct": true, "snippet": [
+                "    port: 80",
+                "    protocol: TCP",
+                "    targetPort: 8080"]},
+            {"why": "Changes the port clients call (web:8080) and still sends to 80: still refused, and every client using web:80 now fails too.", "snippet": [
+                "    port: 8080",
+                "    protocol: TCP",
+                "    targetPort: 80"]},
+            {"why": "HTTP runs over TCP: a UDP Service port never carries the TCP connection, the call still fails.", "snippet": [
+                "    port: 80",
+                "    protocol: UDP",
+                "    targetPort: 8080"]},
+            {"why": "A string targetPort is a port NAME; '8080/TCP' is not a valid name, so the API server rejects the edit.", "snippet": [
+                "    port: 80",
+                "    protocol: TCP",
+                "    targetPort: \"8080/TCP\""]}
+          ],
+          "recap": "targetPort: 8080, the port the container listens on; port 80 stays for the clients.",
+          "next": "s4",
+          "explain": "port is what clients call (web:80); targetPort is where the traffic goes on the Pod. Fix only targetPort: the EndpointSlice switches to :8080 within seconds, no Pod restarts. A named targetPort (the containerPort's name) avoids this mismatch when ports change."
+        },
+        "s4": {
+          "type": "command",
+          "time_limit": 75,
+          "prompt": "Step 4 - Prove it from a throw-away busybox:1.36 Pod (3 s timeout), the way clients call it.",
+          "options": [
+            {
+              "cmd": "kubectl run t --rm -it --image=busybox:1.36 --restart=Never -- wget -qO- -T 3 web",
+              "correct": true,
+              "aliases": ["kubectl run t --rm -it --image=busybox:1.36 --restart=Never -- wget -qO- -T 3 web:80"],
+              "next": null
+            },
+            {
+              "cmd": "kubectl run t --rm -it --image=busybox:1.36 --restart=Never -- wget -qO- -T 3 web:8080",
+              "why": "The Service listens on 80; 8080 is the Pod side. Nothing serves 8080 on the ClusterIP, so the call fails although the fix is right."
+            },
+            {"cmd": "kubectl run t --rm -it --image=busybox:1.36 --restart=Never -- curl -s -m 3 web", "why": "busybox has no curl: the container fails to start with 'executable file not found'."},
+            {"cmd": "kubectl run t --rm -it --image=busybox:1.36 --restart=Never -- ping -c 3 web", "why": "A ClusterIP is virtual: it does not answer ICMP, so ping fails even on a healthy Service."}
+          ],
+          "explain": "Test the way clients do: the Service name on port 80. The page printed by wget proves that 80 -> 8080 works; 'kubectl get endpointslices -l kubernetes.io/service-name=web' now shows 8080."
+        }
+      }
+    },
+    {
+      "id": "TRB-034",
+      "domain": "troubleshooting",
+      "topic": "NetworkPolicy (blocked client)",
+      "difficulty": 3,
+      "title": "A policy that forgot the new frontend",
+      "scenario": "Since this morning's frontend release, Pod 'frontend' in namespace 'shop' times out on Service 'api' (port 8080). Nothing changed on the api side. Restore access for the frontend Pods of 'shop' only.",
+      "tip": "Pods time out between each other? 'kubectl get netpol -A', then compare each rule's selectors with 'get pods --show-labels'. Policies only ADD allowances: one isolating policy is enough to drop traffic.",
+      "docs": [
+        {"title": "Network Policies", "url": "https://kubernetes.io/docs/concepts/services-networking/network-policies/"},
+        {"title": "Debug Services", "url": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/"}
+      ],
+      "stakes": "A harmless label rename in a release silently cuts the frontend off its API: a full outage with every Pod Running.",
+      "analogy": "A guest list written under the old name: the guest changed name, the bouncer still checks the old one.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 45,
+          "context": [
+            "$ kubectl exec -n shop frontend -- wget -qO- -T 3 api:8080",
+            "wget: download timed out",
+            "command terminated with exit code 1"
+          ],
+          "prompt": "Step 1 - A time-out, not a refusal: list the NetworkPolicies of every namespace.",
+          "options": [
+            {
+              "cmd": "kubectl get netpol -A",
+              "correct": true,
+              "aliases": [
+                "kubectl get networkpolicy -A",
+                "kubectl get networkpolicies -A",
+                "kubectl get netpol --all-namespaces",
+                "kubectl get networkpolicies --all-namespaces"
+              ],
+              "next": "s2"
+            },
+            {"cmd": "kubectl get netpol", "why": "Lists the default namespace only: 'No resources found', while the policy sits in shop."},
+            {"cmd": "kubectl describe svc api -n shop", "why": "The Service and its endpoints are fine: a NetworkPolicy drops the packets after the Service has routed them."},
+            {"cmd": "kubectl logs -n kube-system -l k8s-app=kube-proxy", "why": "kube-proxy only programs Service rules; NetworkPolicies are enforced by the CNI plugin, and these logs say nothing about them."}
+          ],
+          "explain": "A refusal means something answered; a silent time-out means packets were dropped, the signature of a NetworkPolicy. -A matters: a policy lives in the namespace of the Pods it protects, which may not be the client's."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 50,
+          "context": [
+            "NAMESPACE   NAME          POD-SELECTOR   AGE",
+            "shop        api-ingress   app=api        41d"
+          ],
+          "prompt": "Step 2 - Show what api-ingress allows.",
+          "options": [
+            {
+              "cmd": "kubectl describe netpol api-ingress -n shop",
+              "correct": true,
+              "aliases": [
+                "kubectl describe networkpolicy api-ingress -n shop",
+                "kubectl describe networkpolicies api-ingress -n shop",
+                "kubectl -n shop describe netpol api-ingress"
+              ],
+              "next": "s3"
+            },
+            {"cmd": "kubectl describe netpol api-ingress", "why": "Looks in the default namespace: NotFound. The policy is in shop."},
+            {"cmd": "kubectl get netpol api-ingress -n shop -o wide", "why": "The same columns as before (name, pod selector, age): the ingress rules are not shown."},
+            {"cmd": "kubectl describe pod -n shop -l app=api", "why": "A Pod does not list the policies selecting it: read the policy itself."}
+          ],
+          "explain": "describe renders the policy in words: which Pods it isolates (PodSelector) and, per rule, the allowed sources and ports. A Pod selected by any Ingress policy drops all inbound traffic that no policy explicitly allows."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 50,
+          "context": [
+            "Spec:",
+            "  PodSelector:     app=api",
+            "  Allowing ingress traffic:",
+            "    To Port: 8080/TCP",
+            "    From:",
+            "      PodSelector: app=web-frontend",
+            "  Not affecting egress traffic",
+            "  Policy Types: Ingress"
+          ],
+          "prompt": "Step 3 - Compare with reality: show the labels of the Pods in shop.",
+          "options": [
+            {
+              "cmd": "kubectl get pods -n shop --show-labels",
+              "correct": true,
+              "aliases": [
+                "kubectl get pod -n shop --show-labels",
+                "kubectl get po -n shop --show-labels",
+                "kubectl get pods --show-labels -n shop"
+              ],
+              "next": "s4"
+            },
+            {"cmd": "kubectl get pods -n shop -l app=web-frontend", "why": "Answers 'No resources found': it proves the rule matches nothing, not which label the frontend carries now."},
+            {"cmd": "kubectl get ns shop --show-labels", "why": "Namespace labels feed a namespaceSelector; this rule is a podSelector on Pod labels."},
+            {"cmd": "kubectl get pods -n shop -o wide", "why": "Adds IPs and nodes, not labels."}
+          ],
+          "explain": "A podSelector with no namespaceSelector matches Pods of the policy's OWN namespace by label. If the release renamed the label, app=web-frontend matches nothing and only the isolation remains."
+        },
+        "s4": {
+          "type": "edit",
+          "time_limit": 110,
+          "filename": "netpol.yaml",
+          "context": [
+            "NAME                  READY   STATUS    RESTARTS   AGE   LABELS",
+            "api-6b8f7d9c5-qx2lm   1/1     Running   0          41d   app=api,pod-template-hash=6b8f7d9c5",
+            "frontend              1/1     Running   0          3h    app=frontend,release=2026.11"
+          ],
+          "prompt": "Step 4 - 'kubectl edit netpol api-ingress -n shop': let in the frontend Pods of shop and nothing else. Type the new source over the old one. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: networking.k8s.io/v1",
+            "kind: NetworkPolicy",
+            "metadata:",
+            "  name: api-ingress",
+            "  namespace: shop",
+            "spec:",
+            "  podSelector:",
+            "    matchLabels:",
+            "      app: api",
+            "  policyTypes:",
+            "  - Ingress",
+            "  ingress:",
+            "  - from:",
+            "    - podSelector:",
+            "        matchLabels:",
+            "          app: web-frontend",
+            "    ports:",
+            "    - protocol: TCP",
+            "      port: 8080"
+          ],
+          "checks": [
+            {
+              "regex": "^  - from:\\s*\\n    - podSelector:\\s*\\n        matchLabels:\\s*\\n          app: \\\"?frontend\\\"?\\s*\\n    ports:",
+              "msg": "The only source: '- podSelector' with matchLabels app: frontend, directly followed by ports."
+            }
+          ],
+          "forbid": [
+            {"regex": "namespaceSelector", "msg": "No namespaceSelector: the frontend is in the same namespace."},
+            {"regex": "web-frontend", "msg": "No Pod carries app=web-frontend any more."},
+            {"regex": "podSelector: \\{\\}", "msg": "An empty podSelector lets in every Pod of shop."}
+          ],
+          "target": ["    - podSelector:", "        matchLabels:", "          app: web-frontend"],
+          "options": [
+            {"correct": true, "snippet": [
+                "    - podSelector:",
+                "        matchLabels:",
+                "          app: frontend"]},
+            {"why": "An empty podSelector selects every Pod of shop: the frontend gets in, but so does any other Pod of the namespace.", "snippet": [
+                "    - podSelector: {}"]},
+            {"why": "namespaceSelector matches NAMESPACE labels: no namespace carries app=frontend, so nothing is let in.", "snippet": [
+                "    - namespaceSelector:",
+                "        matchLabels:",
+                "          app: frontend"]},
+            {"why": "In the same item (no dash) both selectors are ANDed: app=frontend Pods of EVERY namespace get in, not only those of shop.", "snippet": [
+                "    - podSelector:",
+                "        matchLabels:",
+                "          app: frontend",
+                "      namespaceSelector: {}"]}
+          ],
+          "recap": "from: podSelector matchLabels app: frontend (same namespace, nothing else).",
+          "next": "s5",
+          "explain": "A podSelector alone stays inside the policy's namespace, so app: frontend lets in exactly the frontend Pods of shop. The CNI applies the change to new connections at once, no restart. Labelling the Pod app=web-frontend would also work, but fights the release."
+        },
+        "s5": {
+          "type": "command",
+          "time_limit": 75,
+          "prompt": "Step 5 - Prove it from the real client, Pod 'frontend' (3 s timeout).",
+          "options": [
+            {"cmd": "kubectl exec -n shop frontend -- wget -qO- -T 3 api:8080", "correct": true, "next": null},
+            {
+              "cmd": "kubectl run t --rm -it --image=busybox:1.36 --restart=Never -n shop -- wget -qO- -T 3 api:8080",
+              "why": "This Pod carries run=t, not app=frontend: it must still time out. A check of the denial, not of the fix."
+            },
+            {"cmd": "kubectl exec -n shop frontend -- wget -qO- -T 3 api", "why": "Without :8080 wget uses port 80, which Service api does not expose: it fails whatever the policy says."},
+            {"cmd": "kubectl exec frontend -- wget -qO- -T 3 api.shop:8080", "why": "Without -n shop kubectl looks for Pod frontend in default: NotFound."}
+          ],
+          "explain": "Only a Pod carrying the allowed label proves the rule, and frontend is that Pod: expect the api's reply. A throw-away Pod in shop (label run=t) should still time out: that proves api is still protected."
+        }
+      }
+    },
+    {
+      "id": "TRB-035",
+      "domain": "troubleshooting",
+      "topic": "Ephemeral containers (kubectl debug)",
+      "difficulty": 3,
+      "title": "Debug a container that has no shell",
+      "scenario": "Pod 'payments' (namespace default, container 'app', a distroless image running as root) keeps restarting. Its config comes from ConfigMap 'payments-config', mounted at /etc/app. 'kubectl exec' cannot help.",
+      "tip": "No shell in the image? 'kubectl debug -it POD --image=busybox:1.36 --target=CONTAINER' brings the tools; /proc/1/root reaches the app's files. Ephemeral containers stay in the Pod until it is deleted.",
+      "docs": [
+        {"title": "Debug Running Pods", "url": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/"},
+        {"title": "Ephemeral Containers", "url": "https://kubernetes.io/docs/concepts/workloads/pods/ephemeral-containers/"}
+      ],
+      "stakes": "Without kubectl debug you end up rebuilding the image with a shell, while the payment service keeps crashing.",
+      "analogy": "A sealed engine: instead of drilling into it, you plug a diagnostic tool into its port and read what it sees.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 75,
+          "context": [
+            "$ kubectl exec -it payments -c app -- sh",
+            "error: Internal error occurred: error executing command in container: failed to exec in container:",
+            "  OCI runtime exec failed: exec failed: unable to start container process:",
+            "  exec: \"sh\": executable file not found in $PATH: unknown"
+          ],
+          "prompt": "Step 1 - Attach an interactive busybox:1.36 ephemeral container to 'payments' that sees the processes of container 'app'.",
+          "options": [
+            {
+              "cmd": "kubectl debug -it payments --image=busybox:1.36 --target=app",
+              "correct": true,
+              "aliases": [
+                "kubectl debug payments -it --image=busybox:1.36 --target=app",
+                "kubectl debug -it pod/payments --image=busybox:1.36 --target=app",
+                "kubectl debug -it payments --target=app --image=busybox:1.36"
+              ],
+              "next": "s2"
+            },
+            {"cmd": "kubectl debug -it payments --image=busybox:1.36", "why": "Adds an ephemeral container, but without --target it has its own process namespace: ps shows only your shell, not the app."},
+            {"cmd": "kubectl exec -it payments -c app -- /bin/busybox sh", "why": "A distroless image has no busybox either: the same 'executable file not found'."},
+            {"cmd": "kubectl debug -it payments --image=busybox:1.36 --copy-to=payments-dbg", "why": "Creates a COPY of the Pod with fresh processes: you no longer inspect the instance that misbehaves."}
+          ],
+          "explain": "Ephemeral containers are added to a RUNNING Pod through the API, with their own image and tools. --target=app joins the app container's process namespace, so ps shows the app and /proc/<pid>/root reaches its files. Without it the app stays invisible."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "If you don't see a command prompt, try pressing enter.",
+            "/ # ps",
+            "PID   USER     TIME  COMMAND",
+            "    1 root      0:01 /server --config=/etc/app/config.yaml",
+            "   14 root      0:00 sh",
+            "   21 root      0:00 ps"
+          ],
+          "prompt": "Step 2 - Your busybox has its own filesystem. Print the app's /etc/app/config.yaml through its process (PID 1).",
+          "options": [
+            {"cmd": "cat /proc/1/root/etc/app/config.yaml", "correct": true, "next": "s3"},
+            {"cmd": "cat /etc/app/config.yaml", "why": "Looked up in the busybox image: 'No such file or directory'. Only the process namespace is shared, not the filesystem."},
+            {"cmd": "chroot /proc/1/root cat /etc/app/config.yaml", "why": "chroot then runs cat FROM the app's image, which has no cat: 'can't execute'."},
+            {
+              "cmd": "kubectl cp payments:/etc/app/config.yaml /tmp/config.yaml",
+              "why": "There is no kubectl in the debug container, and kubectl cp needs tar in the target container, which a distroless image lacks."
+            }
+          ],
+          "explain": "/proc/<pid>/root is the root directory as that process sees it, mounted volumes included: the app's files without touching its image. It works because both run as root; for an app running as another user you need the same user or the SYS_PTRACE capability."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "/ # cat /proc/1/root/etc/app/config.yaml",
+            "listen: :8080",
+            "db_host: postgres.payment.svc.cluster.local",
+            "db_port: 5432",
+            "/ # exit"
+          ],
+          "prompt": "Step 3 - Back on your terminal: 'app' restarted 3 times. Read what its crashed (previous) instance printed.",
+          "options": [
+            {
+              "cmd": "kubectl logs payments -c app --previous",
+              "correct": true,
+              "aliases": [
+                "kubectl logs payments -c app -p",
+                "kubectl logs payments --previous -c app",
+                "kubectl logs -p payments -c app",
+                "kubectl logs payments -p -c app"
+              ],
+              "next": "s4"
+            },
+            {"cmd": "kubectl logs payments -c app", "why": "Shows the CURRENT instance, still starting: the error that killed the last one is in --previous."},
+            {"cmd": "kubectl logs payments -c debugger-k4x9z --previous", "why": "That is your ephemeral container: it never restarted, so it has no previous instance."},
+            {"cmd": "kubectl describe pod payments --previous", "why": "describe has no --previous flag; it shows the last exit code and reason, not the program's output."}
+          ],
+          "explain": "A restarted container's last output is kept as its PREVIOUS instance: --previous (-p) reads it, -c picks 'app' now that the Pod also holds a debugger container. Here it ties the crash to the config: the lookup of 'postgres.payment' fails."
+        },
+        "s4": {
+          "type": "edit",
+          "time_limit": 100,
+          "filename": "cm.yaml",
+          "context": [
+            "$ kubectl logs payments -c app --previous",
+            "2026-11-06T09:14:02Z FATAL cannot connect to database: dial tcp: lookup",
+            "  postgres.payment.svc.cluster.local on 10.96.0.10:53: no such host"
+          ],
+          "prompt": "Step 4 - The database is Service 'postgres' in namespace 'payments'. 'kubectl edit cm payments-config': type the fixed host line over the wrong one. Ctrl+D to submit.",
+          "prefill": [
+            "apiVersion: v1",
+            "kind: ConfigMap",
+            "metadata:",
+            "  name: payments-config",
+            "  namespace: default",
+            "data:",
+            "  config.yaml: |",
+            "    listen: :8080",
+            "    db_host: postgres.payment.svc.cluster.local",
+            "    db_port: 5432"
+          ],
+          "checks": [
+            {"regex": "^    db_host: postgres\\.payments\\.svc\\.cluster\\.local\\s*$", "msg": "db_host must be postgres.payments.svc.cluster.local (4 spaces, inside the block)."}
+          ],
+          "forbid": [
+            {"regex": "postgres\\.payment\\.", "msg": "The misspelled namespace 'payment' is still there."}
+          ],
+          "target": ["    db_host: postgres.payment.svc.cluster.local"],
+          "options": [
+            {"correct": true, "snippet": [
+                "    db_host: postgres.payments.svc.cluster.local"]},
+            {"why": "With 2 spaces the line leaves the 'config.yaml: |' block: the next indented line breaks the YAML and kubectl edit refuses to save.", "snippet": [
+                "  db_host: postgres.payments.svc.cluster.local"]},
+            {"why": "The pod subdomain is for Pod IPs (a-b-c-d.ns.pod...): a Service name there never resolves.", "snippet": [
+                "    db_host: postgres.payments.pod.cluster.local"]},
+            {"why": "No namespace in the name: it would be read as Service 'postgres' of a namespace 'svc', which does not exist.", "snippet": [
+                "    db_host: postgres.svc.cluster.local"]}
+          ],
+          "recap": "db_host: postgres.payments.svc.cluster.local (<service>.<namespace>.svc.cluster.local).",
+          "next": null,
+          "explain": "A Service's DNS name is <service>.<namespace>.svc.cluster.local. A ConfigMap mounted as a volume (without subPath) is refreshed in the Pod after a short delay, so the crash-looping app reads the fixed file at its next restart: no need to delete the Pod."
+        }
+      }
+    },
+    {
+      "id": "TRB-036",
+      "domain": "troubleshooting",
+      "topic": "HA control plane (etcd quorum)",
+      "difficulty": 3,
+      "title": "One control-plane node down",
+      "scenario": "HA cluster: control-plane nodes cp1, cp2, cp3 with stacked etcd, behind a load balancer. cp3 rebooted after maintenance and stays NotReady. You are root on cp1, in /etc/kubernetes/pki/etcd, with etcdctl.",
+      "tip": "etcd needs a majority: 3 members survive 1 failure, 5 survive 2, and 4 still only 1. Check with 'etcdctl endpoint health --cluster' and 'endpoint status --cluster -w table'.",
+      "docs": [
+        {"title": "Options for Highly Available Topology", "url": "https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/ha-topology/"},
+        {"title": "Operating etcd clusters for Kubernetes", "url": "https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/"}
+      ],
+      "stakes": "Shrug at 2 of 3 and skip the repair: the next node failure freezes every write in the cluster.",
+      "analogy": "A committee of 3 needs 2 votes: one absent member changes nothing; with two absent, no decision passes.",
+      "start": "s1",
+      "steps": {
+        "s1": {
+          "type": "command",
+          "time_limit": 110,
+          "context": [
+            "$ kubectl get nodes",
+            "NAME   STATUS     ROLES           AGE    VERSION",
+            "cp1    Ready      control-plane   120d   v1.37.1",
+            "cp2    Ready      control-plane   120d   v1.37.1",
+            "cp3    NotReady   control-plane   120d   v1.37.1",
+            "w1     Ready      <none>          120d   v1.37.1"
+          ],
+          "prompt": "Step 1 - kubectl still answers. Check the health of EVERY etcd member, not only the local one.",
+          "options": [
+            {"cmd": "etcdctl --endpoints=https://127.0.0.1:2379 --cacert=ca.crt --cert=server.crt --key=server.key endpoint health --cluster", "correct": true, "next": "s2"},
+            {
+              "cmd": "etcdctl --endpoints=https://127.0.0.1:2379 --cacert=ca.crt --cert=server.crt --key=server.key endpoint health",
+              "why": "Checks only 127.0.0.1, cp1's own member: 'healthy', while the dead member on cp3 stays invisible."
+            },
+            {
+              "cmd": "etcdctl --endpoints=https://127.0.0.1:2379 --cacert=ca.crt --cert=server.crt --key=server.key member list",
+              "why": "member list shows the configured members, all 'started', even a dead one: membership, not health."
+            },
+            {"cmd": "etcdctl --endpoints=https://127.0.0.1:2379 endpoint health --cluster", "why": "No CA and no client certificate: the TLS handshake fails before any member is checked."}
+          ],
+          "explain": "--cluster takes the member list from the local member and checks every member's client URL. One unhealthy member out of three is expected here: cp1 and cp2 still answer, which is why kubectl through the load balancer keeps working."
+        },
+        "s2": {
+          "type": "command",
+          "time_limit": 110,
+          "context": [
+            "https://192.168.10.11:2379 is healthy: successfully committed proposal: took = 9.84ms",
+            "https://192.168.10.12:2379 is healthy: successfully committed proposal: took = 11.2ms",
+            "https://192.168.10.13:2379 is unhealthy: failed to commit proposal: context deadline exceeded",
+            "Error: unhealthy cluster"
+          ],
+          "prompt": "Step 2 - Is there still a leader? Show every member's status (leader, raft term) as a table.",
+          "options": [
+            {
+              "cmd": "etcdctl --endpoints=https://127.0.0.1:2379 --cacert=ca.crt --cert=server.crt --key=server.key endpoint status --cluster -w table",
+              "correct": true,
+              "aliases": [
+                "etcdctl --endpoints=https://127.0.0.1:2379 --cacert=ca.crt --cert=server.crt --key=server.key endpoint status --cluster --write-out=table",
+                "etcdctl --endpoints=https://127.0.0.1:2379 --cacert=ca.crt --cert=server.crt --key=server.key endpoint status -w table --cluster"
+              ],
+              "next": "s3"
+            },
+            {
+              "cmd": "etcdctl --endpoints=https://127.0.0.1:2379 --cacert=ca.crt --cert=server.crt --key=server.key endpoint status -w table",
+              "why": "Without --cluster only the local member is shown: you learn whether cp1 leads, not who does."
+            },
+            {
+              "cmd": "etcdctl --endpoints=https://127.0.0.1:2379 --cacert=ca.crt --cert=server.crt --key=server.key member list -w table",
+              "why": "Members and URLs only: no leader, no raft term, so it cannot tell whether quorum holds."
+            },
+            {
+              "cmd": "etcdctl --endpoints=https://127.0.0.1:2379 --cacert=ca.crt --cert=server.crt --key=server.key endpoint health --cluster -w table",
+              "why": "Health again, as a table: there is no IS LEADER column."
+            }
+          ],
+          "explain": "A leader on cp1 or cp2 proves quorum: 3 members need 2 (a majority) to elect a leader and commit writes, so 2 of 3 keeps the cluster working. Lose one more and the last member has no majority: no leader, writes and the API server stop."
+        },
+        "s3": {
+          "type": "command",
+          "time_limit": 60,
+          "context": [
+            "$ ssh cp3",
+            "cp3$ systemctl is-enabled kubelet; systemctl is-active kubelet",
+            "disabled",
+            "inactive"
+          ],
+          "prompt": "Step 3 - On cp3 the kubelet, which starts etcd and the API server as static Pods, did not come back. Start it now AND at every boot.",
+          "options": [
+            {
+              "cmd": "sudo systemctl enable --now kubelet",
+              "correct": true,
+              "aliases": ["sudo systemctl enable kubelet --now"],
+              "next": "s4"
+            },
+            {"cmd": "sudo systemctl start etcd", "why": "kubeadm's etcd is a static Pod started by the kubelet, not a systemd unit: 'Unit etcd.service not found'."},
+            {"cmd": "sudo systemctl start kubelet", "why": "Works today, but the unit stays disabled: the next reboot takes cp3 and its etcd member down again."},
+            {"cmd": "kubectl delete node cp3", "why": "Removes the Node object, not the problem: the etcd member stays registered and down, and cp3 would have to be joined again."}
+          ],
+          "explain": "Once running, the kubelet reads /etc/kubernetes/manifests and restarts etcd and the API server. The etcd member keeps its data directory and catches up from the leader: no 'member add', the member never left the cluster."
+        },
+        "s4": {
+          "type": "command",
+          "time_limit": 60,
+          "context": ["cp3$ systemctl is-active kubelet", "active"],
+          "prompt": "Step 4 - Back on cp1: check that an etcd Pod runs again on every control-plane node (show the node column).",
+          "options": [
+            {
+              "cmd": "kubectl get pods -n kube-system -l component=etcd -o wide",
+              "correct": true,
+              "aliases": [
+                "kubectl get pod -n kube-system -l component=etcd -o wide",
+                "kubectl -n kube-system get pods -l component=etcd -o wide"
+              ],
+              "next": null
+            },
+            {"cmd": "kubectl get pods -l component=etcd -o wide", "why": "Looks in default: 'No resources found'. Control-plane static Pods live in kube-system."},
+            {"cmd": "kubectl get pods -n kube-system -l app=etcd -o wide", "why": "kubeadm labels its static Pods component=etcd and tier=control-plane: app=etcd matches nothing."},
+            {"cmd": "kubectl get nodes -l component=etcd", "why": "component=etcd is a Pod label, not a node label: no node matches."}
+          ],
+          "explain": "Expect etcd-cp1, etcd-cp2 and etcd-cp3 Running, one per node, and cp3 Ready again. A Running Pod is not yet a caught-up member: rerun 'endpoint health --cluster' and wait for 3 healthy."
         }
       }
     }

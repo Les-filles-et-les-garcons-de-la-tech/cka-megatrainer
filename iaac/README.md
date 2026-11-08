@@ -143,6 +143,17 @@ Decide which of three things is wrong, in this order:
   `--config` cannot be mixed with flags, and the group in `admin.conf`.
 - **Ingress controllers.** There is no Ingress or Gateway controller, so NET-011..016 check that the
   objects are accepted and shaped as the explanation says, not that traffic flows.
+- **inotify limits on the host.** kind nodes run containerd and systemd inside containers, which
+  need more inotify instances than the usual default (128). If `make iaac-up` fails with
+  `could not bootstrap the admin user` or containerd logs `too many open files`, raise them on the
+  host (needs root, persistent): `fs.inotify.max_user_instances=512` and
+  `fs.inotify.max_user_watches=524288` in `/etc/sysctl.d/99-kind.conf`, then `sudo sysctl --system`.
+- **GitHub release downloads down.** `addons.sh` fetches release assets; when GitHub answers 504,
+  install the same versions from the tags (`iaac/.bin/kubectl`, `KUBECONFIG=iaac/.kubeconfig`):
+  `apply --server-side -k "https://github.com/kubernetes-sigs/gateway-api/config/crd?ref=v1.7.0"` and
+  `apply -k "https://github.com/kubernetes-sigs/metrics-server/manifests/overlays/release?ref=v0.9.1"`,
+  then the `--kubelet-insecure-tls` patch from `addons.sh`. Without metrics-server, HPA tests see
+  `<unknown>` targets; without the CRDs, Gateway tests fail.
 - **The version.** Everything runs on v1.37.0; a claim about another release is not verified.
 - **Destructive tests** change the control plane for real (API server, scheduler, controller manager,
   kubelet, kube-proxy, certificates), so they are opt-in. They restore what they touch, even on
