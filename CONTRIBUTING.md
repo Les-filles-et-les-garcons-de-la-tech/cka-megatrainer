@@ -23,6 +23,8 @@ make check-links    # only when you touched documentation links (needs network)
 make iaac-up iaac-test ARGS=test_storage   # your question's answers on a real cluster (see iaac/README.md)
 ```
 
+- The engine's unit tests (judge, editor, validator, finale) run on `fixtures/engine_questions.json`,
+  9 frozen questions: never edit them to make a content change pass. Content tests run on `questions.json`.
 - **Python standard library only** for the game: no pip dependencies. Maintainer tools may need
   extras (`tools/promo_video.py`: Pillow and ffmpeg).
 - **English** for all UI text and question content.
@@ -56,6 +58,7 @@ multiple choice where the player must **type** the chosen answer.
       "time_limit": 60,          // seconds, max 120
       "context": ["optional terminal output shown to the player"],
       "prompt": "Step 1 - …",
+      "hint": "a nudge shown with OPTIONS > HINTS ON: where to look, never the answer (≤ 150)",
       "options": [
         {"cmd": "kubectl …", "correct": true, "aliases": ["an equivalent form"], "next": "s2"},
         {"cmd": "kubectl …", "why": "why this plausible command is wrong"}
@@ -111,6 +114,10 @@ Rules (`./cka_trainer.py --validate` enforces most of them):
   reason, not instead of it. Keep it to about 330 characters (a test enforces it) and check every
   technical claim against the documentation, including version-specific ones. Do not quote numbers
   that depend on a history the player has not seen (such as "it comes back as revision 5").
+- **`hint`** (every step, ≤ 150 characters) is a nudge for OPTIONS > HINTS ON: the concept, the
+  object or the place to look ("the kubelet reads its config only at start-up"), never the command or
+  snippet itself. The validator rejects a hint that contains the correct command, one of its aliases
+  or a line of the correct snippet.
 - **Wrong options carry the teaching**: each `why` should say what would actually happen with that
   command (the concrete symptom), not just that it is wrong. Learn mode shows the `why` of every
   wrong option on every answer page, even after a correct answer, so write them as small lessons.
@@ -128,13 +135,18 @@ Rules (`./cka_trainer.py --validate` enforces most of them):
 
   A test checks that every level can still fill a 20-question exam in the CKA proportions, with
   some variety: the easy pool of each domain must hold at least 1.5 times its share.
-- Keep the library in the CKA proportions: **1.2 questions per percent of weight** (120 questions)
-  (Troubleshooting 30 %, Cluster Architecture 25 %, Services & Networking 20 %, Workloads &
-  Scheduling 15 %, Storage 10 %). The tests check the exact counts: add questions in proportional
-  batches (the smallest exact batch is 20: 6/5/4/3/2) and update `test_library_in_cka_proportions`.
+- Keep the library in the CKA proportions (Troubleshooting 30 %, Cluster Architecture 25 %, Services &
+  Networking 20 %, Workloads & Scheduling 15 %, Storage 10 %): add questions in **batches of 20**
+  (6 TRB / 5 CLU / 4 NET / 3 WRK / 2 STO). `test_library_grows_in_batches_of_20_in_cka_proportions`
+  checks every multiple of 20, so it needs no edit when a batch lands. Each domain in
+  `questions.json` declares its id `prefix` (CLU, WRK…) and its menu label `short`.
+- **Steps follow the difficulty**: easy and medium questions take 2–4 steps; a hard question has the
+  shape of a real exam task, **5 or 6 steps** (prepare, change, wait, verify). The validator and a
+  test enforce it.
 - **Step by step**: (1) pick the domain and the next free id, e.g. `STO-011`; (2) write the
   question in a fragment file `{"questions": [...]}`, copying the shape above (a first step that
-  generates or inspects, then the fix, then the verification, 2–4 steps, up to 5 for a hard question so that every real stage has its step); (3) add its `docs`, `stakes` and `analogy`;
+  generates or inspects, then the fix, then the verification: 2–4 steps, 5–6 for a hard question);
+  (3) add its `docs`, `stakes`, `analogy` and a `hint` for every step;
   (4) check it with `tools/validate_fragment.py`; (5) merge it with `tools/merge_questions.py`,
   which also puts `questions.json` in house style; (6) run `make test`, `make check-links`,
   then play it with `./cka_trainer.py --learn --id STO-011` to see that the green check marks

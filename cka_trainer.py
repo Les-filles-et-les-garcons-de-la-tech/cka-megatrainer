@@ -9,6 +9,7 @@ import argparse
 import curses
 import difflib
 import json
+import math
 import os
 import random
 import re
@@ -40,8 +41,10 @@ PASTE_QUARANTINE = 0.3  # seconds during which the tail of a paste is still drop
 PASTE_START, PASTE_END = -200, -201  # bracketed-paste markers (ints: the editor ignores them)
 
 A = {}  # curses attributes, filled by init_colors()
-SETTINGS = {"allow_paste": False, "silent": False, "learn": False,  # OPTIONS screen + flags
+SETTINGS = {"allow_paste": False, "silent": False, "learn": False, "recall": False, "hints": False,  # OPTIONS + flags
             "timer": "question", "level": "hard", "stereo": False, "autocomplete": False}
+MAX_HINT = 150  # characters of a step's 'hint' (HINTS option): a nudge, never the answer
+RECALL_HINT = 0.5  # RECALL mode: the options appear once this share of the step's time has passed
 LEVELS = {"easy": 1, "medium": 2, "hard": 3}  # a level plays the questions up to its difficulty
 EXAM_SECONDS = 120 * 60  # the CKA: 2 hours for the whole exam
 PRIME_OK = "Right. Before you move on: say why each of the others fails."
@@ -71,6 +74,11 @@ def load_db(path):
     for q in data["questions"]:
         validate_question(q, domains, seen)
     return domains, data["questions"]
+
+
+def short_name(domain):
+    """Menu / header label of a domain: its optional 'short' field, else its name up to a comma."""
+    return domain.get("short") or domain["name"].split(",")[0].upper()
 
 
 def validate_question(q, domains, seen):
@@ -107,6 +115,10 @@ def validate_question(q, domains, seen):
             fail(f"step {sid}: missing 'prompt'")
         if min(s.get("time_limit", MAX_TIME), MAX_TIME) <= 0:
             fail(f"step {sid}: time_limit must be positive")
+        if "hint" in s:
+            problem = hint_problem(s)
+            if problem:
+                fail(f"step {sid}: hint {problem}")
         if s.get("type") not in ("command", "edit"):
             fail(f"step {sid}: unknown type {s.get('type')!r}")
         opts = s.get("options", [])
@@ -173,6 +185,23 @@ def apply_snippet(step, snippet):
     lines, target = lines_of(step["prefill"]), lines_of(step["target"])
     i = find_block(lines, target)
     return "\n".join(lines[:i] + snippet + lines[i + len(target):])
+
+
+def hint_problem(s):
+    """Why a step's 'hint' is not acceptable, or None: a short text that never contains the
+    right answer (the correct command or one of its forms, or a line of the correct snippet)."""
+    hint = s["hint"]
+    if not (isinstance(hint, str) and 0 < len(hint) <= MAX_HINT):
+        return f"must be a short text (1-{MAX_HINT} characters)"
+    good = next((o for o in s.get("options", []) if o.get("correct")), {})
+    flat = norm_cmd(hint)
+    for form in [good.get("cmd"), *good.get("aliases", [])] if "cmd" in good else []:
+        if norm_cmd(form) in flat:
+            return "gives the answer away: " + form
+    for ln in lines_of(good.get("snippet", [])):
+        if len(ln.strip()) >= 12 and ln.strip() in hint:
+            return "gives the answer away: " + ln.strip()
+    return None
 
 
 def correct_path(q):
@@ -461,7 +490,7 @@ def init_colors(stdscr):
     retro.init_colors(stdscr)
     C = retro.C
     A.update(
-        green=C["green"], yellow=C["yellow"], red=C["red"], cyan=C["cyan"],
+        green=C["green"], yellow=C["yellow"], red=C["red"], cyan=C["cyan"], magenta=C["magenta"],
         bold=curses.A_BOLD, dim=curses.A_DIM, rev=curses.A_REVERSE, normal=0,
     )
 
@@ -569,16 +598,23 @@ def pager(stdscr, title, lines, footer="Enter: continue   q: quit"):
 # Screens
 # --------------------------------------------------------------------------
 
-def step_body(q, step, options, width, budget):
+def step_body(q, step, options, width, budget, hint_in=None):
     """The text above the input area, fitted into budget lines. When it does not fit,
-    the scenario goes first, then the oldest context lines; prompt and options always stay."""
+    the scenario goes first, then the oldest context lines; prompt and options always stay.
+    hint_in: RECALL mode, seconds before the options appear (None: they are shown)."""
     title = expand([(q["title"], A["bold"])], width)
     scenario = expand([(q["scenario"], A["normal"])], width)
     context = []
     if step.get("context"):
         context = expand([("│ " + ln, A["dim"], True) for ln in as_text(step["context"]).split("\n")], width)
     tail = [("", 0)] + expand([(step["prompt"], A["cyan"] | A["bold"])], width)
-    if step["type"] == "command":
+    hint = expand([("HINT: " + step["hint"], A["magenta"])], width) if SETTINGS["hints"] and step.get("hint") else []
+    tail += hint
+    if hint_in is not None:
+        tail.append(("", 0))
+        tail += expand([(f"RECALL: type it from memory. The options appear in {math.ceil(hint_in)}s.",
+                         A["yellow"])], width)
+    elif step["type"] == "command":
         tail.append(("", 0))  # a breath between the question and its options
         for label, o in zip(LABELS, options):
             if SETTINGS["learn"] and o.get("correct"):  # learn mode: the answer is shown
@@ -590,6 +626,8 @@ def step_body(q, step, options, width, budget):
         body = head + gap + context + tail
         if len(body) <= budget:
             return body
+    if hint and len(title) + len(tail) > budget:  # too small even without the scenario: drop the hint first
+        tail = [x for x in tail if x not in hint]
     room = budget - len(title) - len(gap) - len(tail) - 1  # 1: the "…" marker
     if context and room >= 1:
         return title + gap + [("│ …", A["dim"])] + context[-room:] + tail
@@ -640,21 +678,21 @@ def draw_options(stdscr, y, x, h, w, options, view):
         put(stdscr, y + h - 1, x + w - 10, " ▼ PgDn ", A["yellow"] | A["bold"])
 
 
-def draw_step(stdscr, title, q, step, options, ed, remaining, limit, warn=False, view=None):
+def draw_step(stdscr, title, q, step, options, ed, remaining, limit, warn=False, view=None, hint_in=None):
     h, w = stdscr.getmaxyx()
     stdscr.erase()
     header(stdscr, title)
     countdown(stdscr, 1, remaining, limit)
 
     # rows: header, bar, blank, body, blank, input area (a command needs 3 rows, an edit ~8), footer
-    body = step_body(q, step, options, w - 2, h - 5 - (3 if step["type"] == "command" else 8))
+    body = step_body(q, step, options, w - 2, h - 5 - (3 if step["type"] == "command" else 8), hint_in)
     for i, (text, attr) in enumerate(body):
         put(stdscr, 3 + i, 1, text, attr)
 
     # input area: the editor box, plus the snippet options for an edit step
     top, ex, ew = 3 + len(body) + 1, 0, w
     eh = h - 1 - top
-    if step["type"] == "edit":
+    if step["type"] == "edit" and hint_in is None:  # RECALL: no options panel before the hint
         rows = snippet_rows(options)
         widest = max(len(r[2]) + r[1] for r in rows if r) + 8
         pw = min(max(widest, 34), w // 2)
@@ -681,7 +719,8 @@ def draw_step(stdscr, title, q, step, options, ed, remaining, limit, warn=False,
         tab = "Tab: complete   " if SETTINGS["autocomplete"] else ""
         hint = f"Enter: submit   {tab}\\+Enter: new line   Ctrl+X: skip   Ctrl+C: quit"
     else:
-        hint = "Ctrl+D: submit   Enter: new line   Tab: 2 spaces   PgUp/PgDn: options   Ctrl+X: skip"
+        pages = "" if hint_in is not None else "PgUp/PgDn: options   "
+        hint = f"Ctrl+D: submit   Enter: new line   Tab: 2 spaces   {pages}Ctrl+X: skip"
     if warn:
         put(stdscr, h - 1, 0, "⛔ Paste blocked — type it yourself, that is the whole point!",
             A["red"] | A["bold"])
@@ -713,6 +752,8 @@ def run_step(stdscr, title, q, step, options, clock=None):
     while True:
         now = time.monotonic()
         elapsed = now - start
+        hint_in = recall_hint_in(limit, elapsed)
+        ed_words = None if hint_in is not None else words  # completion would reveal the options
         remaining, total = (clock["deadline"] - now, clock["total"]) if clock else (limit - elapsed, limit)
         if remaining <= 0:
             return ed.text(), (elapsed if clock else float(limit)), "timeout", pastes
@@ -720,7 +761,7 @@ def run_step(stdscr, title, q, step, options, clock=None):
             curses.napms(200)
             continue
         curses.curs_set(1)
-        draw_step(stdscr, title, q, step, options, ed, remaining, total, now < warn_until, view)
+        draw_step(stdscr, title, q, step, options, ed, remaining, total, now < warn_until, view, hint_in)
         try:
             keys = read_burst(stdscr)
         except curses.error:
@@ -746,20 +787,24 @@ def run_step(stdscr, title, q, step, options, clock=None):
                 view["panel"] += 5 if key == curses.KEY_NPAGE else -5
                 view["panel"] = max(0, view["panel"])
                 continue
-            action = ed.handle(key, enter_submits=step["type"] == "command", words=words)
+            action = ed.handle(key, enter_submits=step["type"] == "command", words=ed_words)
             if action:
                 return ed.text(), time.monotonic() - start, action, pastes
 
 
-def variant_lines(label, option, why_attr, why=None, text_attr=None):
+def variant_lines(label, option, why_attr, why=None, text_attr=None, mark=" ", also=(), yours=False):
     """One variant with its explanation: the text the player saw, then why. The explanation
-    refers to a variant, so the variant has to be on the page too."""
+    refers to a variant, so the variant has to be on the page too. mark: ✔ / ✘ on the
+    'All the options' list; also: accepted equivalent forms; yours: the player typed this one."""
     if "cmd" in option:
         body = [option["cmd"]]
     else:  # a snippet: leading spaces as '·', like the options panel
         body = ["·" * (len(ln) - len(ln.lstrip(" "))) + ln.lstrip(" ") for ln in lines_of(option["snippet"])]
-    lines = [(f"  {label}) {ln}" if i == 0 else f"     {ln}", text_attr or A["normal"] | A["bold"], True)
-             for i, ln in enumerate(body)]
+    attr = text_attr or A["normal"] | A["bold"]
+    lines = [(f"{mark} {label}) {ln}" if i == 0 else f"     {ln}", attr, True) for i, ln in enumerate(body)]
+    lines += [(f"     {form}   (also accepted)", attr, True) for form in also]
+    if yours:
+        lines.append(("     ^ your answer", A["red"] | A["bold"]))
     return lines + [("          → " + (why or option["why"]), why_attr), ("", 0)]
 
 
@@ -772,6 +817,14 @@ def docs_lines(docs):
     for d in docs:
         lines += [("  " + d["title"], A["normal"]), ("  " + d["url"], A["cyan"], True)]
     return lines
+
+
+def recall_hint_in(limit, elapsed):
+    """RECALL mode: seconds left before a step's options appear (at RECALL_HINT of its own time
+    limit), or None when they are shown."""
+    if not SETTINGS["recall"] or elapsed >= limit * RECALL_HINT:
+        return None
+    return limit * RECALL_HINT - elapsed
 
 
 def feedback_lines(step, options, text, res, elapsed, pts, pastes=0, docs=None, clock=None):
@@ -800,65 +853,54 @@ def feedback_lines(step, options, text, res, elapsed, pts, pastes=0, docs=None, 
     if SETTINGS["learn"]:  # affective priming + self-explanation, before the facts
         lines += [(PRIME_OK if res["ok"] else PRIME_MISS, A["yellow"]), ("", 0)]
 
-    if step["type"] == "command":
-        good = correct_option(step)
-        if res["how"] == "submit" and not res["ok"]:
+    good = correct_option(step)
+    if res["ok"]:  # the answer, then why it is right; learn mode also explains the traps avoided
+        lines += [("Why this is right:", A["green"] | A["bold"]), ("", 0)]
+        lines += variant_lines(LABELS[options.index(good)], good, A["green"], why=step["explain"],
+                               text_attr=A["green"] | A["bold"])
+        if SETTINGS["learn"]:
+            others = [(LABELS[i], o) for i, o in enumerate(options) if not o.get("correct")]
+            if others:
+                lines += [("", 0), ("Why not the others:", A["yellow"] | A["bold"]), ("", 0)]
+                for lab, o in others:
+                    lines += variant_lines(lab, o, A["yellow"])
+        return lines + docs_lines(docs)
+
+    # not solved (wrong, time's up, skipped): what was typed, then EVERY option, the right one first
+    chosen = res.get("option")
+    if res["how"] == "submit":
+        if step["type"] == "command":
             lines += [("You typed:", A["bold"]), ("  $ " + text.strip(), A["yellow"], True)]
-            chosen = res.get("option")
             if chosen:
-                label = LABELS[options.index(chosen)]
-                lines += [(f"That is option {label} - why it is wrong:", A["bold"]),
-                          ("  " + chosen["why"], A["normal"])]
+                lines.append((f"  That is option {LABELS[options.index(chosen)]}: see why below.", A["normal"]))
             elif res.get("close") is good:
-                lines.append(("Almost: you aimed at the right answer but made a typo. "
+                lines.append(("  Almost: you aimed at the right answer but made a typo. "
                               "In the exam a typo is a failed command.", A["normal"]))
             elif res.get("close"):
-                label = LABELS[options.index(res["close"])]
-                lines += [(f"Closest to option {label} (with typos) - why it is wrong:", A["bold"]),
-                          ("  " + res["close"]["why"], A["normal"])]
+                lines.append((f"  Closest to option {LABELS[options.index(res['close'])]} (with typos): "
+                              "see why below.", A["normal"]))
             else:
-                lines.append(("This matches none of the options.", A["normal"]))
-            lines.append(("", 0))
-        if not res["ok"]:
-            lines += [("Correct answer:", A["bold"]), ("  $ " + good["cmd"], A["green"], True)]
-            for alias in good.get("aliases", []):
-                lines.append(("  $ " + alias + "   (also accepted)", A["green"], True))
-            lines.append(("", 0))
-    else:
-        good, chosen = correct_option(step), res.get("option")
-        if res["how"] == "submit" and not res["ok"]:
-            if chosen is good:
-                lines.append(("You typed the right snippet, but the file is still wrong: check the "
-                              "place, the indentation and the old lines you had to replace.", A["normal"]))
-            elif chosen:
-                label = LABELS[options.index(chosen)]
-                lines += [(f"You typed option {label} - why it is wrong:", A["bold"]),
-                          ("  " + chosen["why"], A["normal"])]
-            lines.append(("", 0))
-        if res.get("problems"):
-            lines.append(("Problems found:", A["bold"]))
-            lines += [("  • " + p, A["yellow"]) for p in res["problems"]]
-            lines.append(("", 0))
-        if not res["ok"]:
-            lines.append((f"Correct snippet (option {LABELS[options.index(good)]}):", A["bold"]))
-            lines += [("  " + ln, A["green"], True) for ln in lines_of(good["snippet"])]
-            lines.append(("", 0))
-
-    if step.get("explain"):
-        if res["ok"]:  # same form as the traps: the answer, then why it is right
-            lines += [("Why this is right:", A["green"] | A["bold"]), ("", 0)]
-            lines += variant_lines(LABELS[options.index(correct_option(step))], correct_option(step),
-                                   A["green"], why=step["explain"], text_attr=A["green"] | A["bold"])
-        else:
-            lines += [("Why:", A["cyan"] | A["bold"]), ("", 0), ("  " + step["explain"], A["normal"])]
-    if not res["ok"] or SETTINGS["learn"]:  # learn mode also explains the traps you avoided
-        others = [(LABELS[i], o) for i, o in enumerate(options)
-                  if not o.get("correct") and o is not res.get("option")]
-        if others:
-            head = "The other traps:" if not res["ok"] else "Why not the others:"
-            lines += [("", 0), (head, A["yellow"] | A["bold"]), ("", 0)]
-            for lab, o in others:
-                lines += variant_lines(lab, o, A["yellow"])
+                lines.append(("  This matches none of the options.", A["normal"]))
+        elif chosen is good:
+            lines.append(("You typed the right snippet, but the file is still wrong: check the "
+                          "place, the indentation and the old lines you had to replace.", A["normal"]))
+        elif chosen:
+            lines.append((f"You typed option {LABELS[options.index(chosen)]}: see why below.", A["bold"]))
+        lines.append(("", 0))
+    if res.get("problems"):
+        lines.append(("Problems found:", A["bold"]))
+        lines += [("  • " + p, A["yellow"]) for p in res["problems"]]
+        lines.append(("", 0))
+    yours = chosen or (res.get("close") if res.get("close") is not good else None)
+    lines += [("All the options:", A["cyan"] | A["bold"]), ("", 0)]
+    lines += variant_lines(LABELS[options.index(good)], good, A["green"], why=step["explain"],
+                           text_attr=A["green"] | A["bold"], mark="✔",
+                           also=good.get("aliases", []), yours=good is yours)
+    for i, o in enumerate(options):
+        if not o.get("correct"):
+            mine = o is yours
+            lines += variant_lines(LABELS[i], o, A["yellow"], mark="✘", yours=mine,
+                                   text_attr=(A["red"] if mine else A["normal"]) | A["bold"])
     return lines + docs_lines(docs)
 
 
@@ -891,7 +933,7 @@ def ask_question(stdscr, q, n, total, score, domains, sound, clock=None):
     log = []
     seconds = sum(min(s.get("time_limit", MAX_TIME), MAX_TIME) for _, s in path)
     retro.level_screen(stdscr, n, total, [
-        (domains[q["domain"]]["name"].split(",")[0].upper() + f"  ·  {q['id']}", "cyan"),
+        (short_name(domains[q["domain"]]) + f"  ·  {q['id']}", "cyan"),
         (q["title"], "yellow"),
         (f"{plen} step{'s' * (plen > 1)}  ·  " + (f"{clock_text(clock['deadline'] - time.monotonic())} left "
                                                    f"on the global clock" if clock else f"{seconds}s on the clock"),
@@ -938,6 +980,10 @@ def rules_lines():
         ("OPTIONS (title menu)", b),
         ("  MODE   EXAM, or LEARN: the right answer is marked, every answer links to the", n),
         ("         Kubernetes docs, and the results are tagged LEARN MODE (also: --learn).", n),
+        ("         Or RECALL: the options are hidden, type the answer from memory; they", n),
+        ("         appear as a hint at half of the step's time (also: --recall).", n),
+        ("  HINTS  OFF, or ON: each step shows a short hint (where to look, what matters),", n),
+        ("         never the answer itself (also: --hints).", n),
         ("  AUTOCOMPLETE  OFF, or ON: Tab completes commands, names and flags, like kubectl's", n),
         ("         completion in the exam (from the question's commands; not in YAML files).", n),
         ("  TIMER  BY QUESTION (a countdown per step) or GLOBAL: one clock for the session,", n),
@@ -954,6 +1000,10 @@ def rules_lines():
         ("  Edit step: a file opens in a multiline editor. Enter = new line, Ctrl+D submits.", n),
         ("  Ctrl+X skips a step, Ctrl+C quits.", n), ("", 0),
         ("A wrong step ends the question: read the explanation and the recap, then try again!", n),
+        ("", 0),
+        ("Credits", b),
+        ("  RECALL, HINTS and the all-options answer page come from CKS Megatrainer,", n),
+        ("  by @fedir, also free software under the GNU GPL v3.", n),
     ]
 
 
@@ -1007,11 +1057,19 @@ def option_rows(questions, sound):
 
     music_ok = sound.enabled and sound.player is not None
     rows = [
-        {"label": "MODE", "values": ["EXAM", "LEARN"], "index": int(SETTINGS["learn"]),
-         "on_change": setter("learn", {"EXAM": False, "LEARN": True}),
+        {"label": "MODE", "values": ["EXAM", "LEARN", "RECALL"],
+         "index": 1 if SETTINGS["learn"] else 2 if SETTINGS["recall"] else 0,
+         "on_change": lambda value: SETTINGS.update(learn=value == "LEARN", recall=value == "RECALL"),
          "hints": {"EXAM": "Like the real exam: the answers are not shown.",
                    "LEARN": "The right answer is marked and every answer links to the Kubernetes docs. "
-                            "Results are tagged LEARN MODE."}},
+                            "Results are tagged LEARN MODE.",
+                   "RECALL": "The options are hidden: type the answer from memory. They appear as a hint "
+                             "when half of the step's time is gone."}},
+        {"label": "HINTS", "values": ["OFF", "ON"], "index": int(SETTINGS["hints"]),
+         "on_change": setter("hints", {"OFF": False, "ON": True}),
+         "hints": {"OFF": "No help on the question screen, like the exam.",
+                   "ON": "Each step shows a short hint under its task: where to look, what matters. "
+                         "Never the answer itself."}},
         {"label": "AUTOCOMPLETE", "values": ["OFF", "ON"], "index": int(SETTINGS["autocomplete"]),
          "on_change": setter("autocomplete", {"OFF": False, "ON": True}),
          "hints": {"OFF": "Type every character, Tab inserts 2 spaces.",
@@ -1041,7 +1099,8 @@ def option_rows(questions, sound):
 def options_status(sound):
     """One line under the title menu: the current OPTIONS."""
     return "  ·  ".join([
-        "LEARN" if SETTINGS["learn"] else "EXAM",
+        "LEARN" if SETTINGS["learn"] else "RECALL" if SETTINGS["recall"] else "EXAM",
+        *(["HINTS"] if SETTINGS["hints"] else []),
         *(["AUTOCOMPLETE"] if SETTINGS["autocomplete"] else []),
         "GLOBAL TIMER" if SETTINGS["timer"] == "global" else "TIMER BY QUESTION",
         "STEREO" if SETTINGS["stereo"] else "MONO",
@@ -1056,7 +1115,7 @@ def menu(stdscr, domains, questions, sound):
         pool = at_level(questions)
         counts = {d: sum(q["domain"] == d for q in pool) for d in domains}
         items = [("exam", "CKA EXAM", f"{EXAM_MIN}-{EXAM_MAX}Q")]
-        items += [(d, v["name"].split(",")[0].upper(), f"{share[d]}/{EXAM_MAX} {v['weight']:>2}%")
+        items += [(d, short_name(v), f"{share[d]}/{EXAM_MAX} {v['weight']:>2}%")
                   for d, v in domains.items() if counts[d]]
         return items + [("", "ALL QUESTIONS", f"{len(pool)}Q"),
                         ("level", "LEVEL", SETTINGS["level"].upper()),  # changed in place
@@ -1196,9 +1255,15 @@ def main(argv=None):
     ap.add_argument("--no-shuffle", dest="shuffle", action="store_false", help="keep database order")
     ap.add_argument("--allow-paste", action="store_true", help="do not block pasted input")
     ap.add_argument("--silent", action="store_true", help="no music or sound effects")
-    ap.add_argument("--learn", action="store_true",
-                    help="learn mode: the right answer is marked with a green check, and each answer "
-                         "page links to the Kubernetes documentation")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--learn", action="store_true",
+                      help="learn mode: the right answer is marked with a green check, and each answer "
+                           "page links to the Kubernetes documentation")
+    mode.add_argument("--recall", action="store_true",
+                      help="recall mode: the options are hidden, type the answer from memory; they appear "
+                           "when half of the step's time is gone")
+    ap.add_argument("--hints", action="store_true",
+                    help="each step shows a short pedagogical hint under its task (never the answer)")
     ap.add_argument("--level", choices=list(LEVELS), default="hard",
                     help="easy: easy questions only; medium: easy + medium; hard: all (default)")
     ap.add_argument("--timer", choices=["question", "global"], default="question",
@@ -1214,7 +1279,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     SETTINGS["allow_paste"] = args.allow_paste
     SETTINGS["silent"] = args.silent
-    SETTINGS["learn"] = args.learn
+    SETTINGS["learn"], SETTINGS["recall"], SETTINGS["hints"] = args.learn, args.recall, args.hints
     SETTINGS.update(level=args.level, timer=args.timer, stereo=args.stereo, autocomplete=args.autocomplete)
     retro.set_theme(args.theme)
 

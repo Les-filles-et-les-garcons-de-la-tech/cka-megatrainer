@@ -1,0 +1,60 @@
+# One node (included by host.yml with loop_var 'vm'): cloud-init seed ISO, disk, domain, running.
+- name: "{{ vm.name }}: seed directory"
+  ansible.builtin.file: {path: "{{ cache }}/{{ vm.name }}", state: directory, mode: "0755"}
+
+- name: "{{ vm.name }}: seed files"
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ cache }}/{{ vm.name }}/{{ item }}"
+    mode: "0644"
+  loop: [user-data, meta-data]
+  vars: {ssh_pubkey: "{{ pubkey.content | b64decode | trim }}"}
+
+- name: "{{ vm.name }}: seed ISO (cidata)"
+  ansible.builtin.command: >
+    xorriso -as mkisofs -quiet -output {{ cache }}/{{ vm.name }}/seed.iso -volid cidata -joliet -rock
+    {{ cache }}/{{ vm.name }}/user-data {{ cache }}/{{ vm.name }}/meta-data
+  args: {creates: "{{ cache }}/{{ vm.name }}/seed.iso"}
+
+- name: "{{ vm.name }}: seed volume exists?"
+  ansible.builtin.command: "{{ virsh }} vol-info --pool {{ vm_pool }} {{ vm_prefix }}{{ vm.name }}-seed.iso"
+  register: seed_vol
+  changed_when: false
+  failed_when: false
+
+- name: "{{ vm.name }}: upload the seed"
+  ansible.builtin.shell: |
+    set -e
+    size=$(stat -c %s {{ cache }}/{{ vm.name }}/seed.iso)
+    {{ virsh }} vol-create-as {{ vm_pool }} {{ vm_prefix }}{{ vm.name }}-seed.iso "${size}b" --format raw
+    {{ virsh }} vol-upload --pool {{ vm_pool }} {{ vm_prefix }}{{ vm.name }}-seed.iso {{ cache }}/{{ vm.name }}/seed.iso
+  when: seed_vol.rc != 0
+
+- name: "{{ vm.name }}: disk exists?"
+  ansible.builtin.command: "{{ virsh }} vol-info --pool {{ vm_pool }} {{ vm_prefix }}{{ vm.name }}.qcow2"
+  register: disk
+  changed_when: false
+  failed_when: false
+
+- name: "{{ vm.name }}: copy-on-write disk on the base image"
+  ansible.builtin.command: >
+    {{ virsh }} vol-create-as {{ vm_pool }} {{ vm_prefix }}{{ vm.name }}.qcow2 {{ vm.disk_gib }}G --format qcow2
+    --backing-vol {{ vm_base_volume }} --backing-vol-format qcow2
+  when: disk.rc != 0
+
+- name: "{{ vm.name }}: domain definition"
+  ansible.builtin.template: {src: domain.xml.j2, dest: "{{ cache }}/{{ vm.name }}/domain.xml", mode: "0644"}
+
+- name: "{{ vm.name }}: domain state"
+  ansible.builtin.command: "{{ virsh }} domstate {{ vm_prefix }}{{ vm.name }}"
+  register: dom
+  changed_when: false
+  failed_when: false
+
+- name: "{{ vm.name }}: define"
+  ansible.builtin.command: "{{ virsh }} define {{ cache }}/{{ vm.name }}/domain.xml"
+  when: dom.rc != 0
+
+- name: "{{ vm.name }}: start"
+  ansible.builtin.command: "{{ virsh }} start {{ vm_prefix }}{{ vm.name }}"
+  when: dom.rc != 0 or 'running' not in dom.stdout

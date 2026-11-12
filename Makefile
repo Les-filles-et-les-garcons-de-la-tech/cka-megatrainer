@@ -1,7 +1,7 @@
 PYTHON ?= python3
 APP    := cka_trainer.py
 
-.PHONY: help first-start start-exam start-learn start-learn-here start-exam-silent start-exam-here install-retro uninstall list validate test check-links iaac-up iaac-down iaac-status iaac-test iaac-test-destructive iaac-coverage screenshot readme-media dist
+.PHONY: help first-start start-exam start-learn start-learn-here start-exam-silent start-exam-here install-retro uninstall list validate test check-links iaac-up iaac-tools iaac-down iaac-status iaac-test iaac-test-destructive iaac-coverage vm-venv vm-up vm-down vm-status vm-test vm-test-destructive screenshot readme-media dist
 
 # tmux lives in the 'cka-dev' toolbox on Fedora Silverblue
 TMUX_RUN := $(if $(shell command -v tmux),,toolbox run -c cka-dev)
@@ -46,6 +46,9 @@ test: validate ## Validate the database and run the unit tests (plus the iaac co
 iaac-up: ## Create the v1.37 test cluster (kind) used to check the answers (see iaac/README.md)
 	@iaac/cluster.sh up
 
+iaac-tools: ## Fetch the pinned tools the questions use (helm) into iaac/.bin (checksum-verified)
+	@iaac/tools.sh
+
 iaac-down: ## Delete the test cluster
 	@iaac/cluster.sh down
 
@@ -60,6 +63,31 @@ iaac-test-destructive: ## Also run the tests that break and repair control-plane
 
 iaac-coverage: ## Which tests exercise which question (no cluster needed)
 	@cd iaac/tests && $(PYTHON) test_coverage.py --table
+
+# --- the libvirt lab (iaac/vm): Ubuntu 24.04 VMs, kubeadm, like the exam (HA=1: 3 control planes + lb) ---
+VM_ANSIBLE = cd iaac/vm && .venv/bin/ansible-playbook
+HA ?= 0
+VM_HA = $(if $(filter 1 true yes,$(HA)),true,false)
+
+vm-venv: ## Install the pinned Ansible into iaac/vm/.venv (no system change)
+	@test -x iaac/vm/.venv/bin/ansible-playbook || { $(PYTHON) -m venv iaac/vm/.venv && \
+	  iaac/vm/.venv/bin/pip install -q -r iaac/vm/requirements.txt; }
+
+vm-up: vm-venv ## Build the VM lab (libvirt): cp1 + node01, kubeadm v1.37, Calico, add-ons (HA=1: cp1..cp3 + lb + node01)
+	@$(VM_ANSIBLE) site.yml -e ha=$(VM_HA)
+
+vm-down: vm-venv ## Delete the VM lab (VMs, disks, network); keeps the image cache and SSH key
+	@$(VM_ANSIBLE) destroy.yml
+
+vm-status: ## Show the VM lab: domains and Kubernetes nodes
+	@virsh -c qemu:///system list --all | grep -E ' cka-|Name|Nom' || true
+	@KUBECONFIG=iaac/.kubeconfig-vm iaac/.bin/kubectl get nodes -o wide 2>/dev/null || echo "no VM cluster (make vm-up)"
+
+vm-test: ## Run the cluster tests against the VM lab (ARGS=test_cluster for one file)
+	@IAAC_TARGET=vm iaac/run-tests.sh $(ARGS)
+
+vm-test-destructive: ## The same, with the control-plane tests
+	@IAAC_TARGET=vm DESTRUCTIVE=1 iaac/run-tests.sh $(ARGS)
 
 check-links: ## Check that every documentation link of questions.json still works (needs network)
 	@$(PYTHON) tools/check_links.py

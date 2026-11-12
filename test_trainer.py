@@ -1,26 +1,60 @@
 import copy
 import unittest
+from pathlib import Path
 
 import cka_trainer as t
 
+# The CKA library (content tests: pedagogy, screen fit, traps proven wrong...).
 DOMAINS, QUESTIONS = t.load_db(t.DEFAULT_DB)
-BY_ID = {q["id"]: q for q in QUESTIONS}
+# Frozen questions for the ENGINE tests (judge, editor, validator, finale): they never change
+# when the library grows: a frozen copy of 9 early CKA questions (shared with CKS Megatrainer).
+FX_DOMAINS, FX_QUESTIONS = t.load_db(Path(__file__).resolve().parent / "fixtures" / "engine_questions.json")
+BY_ID = {q["id"]: q for q in FX_QUESTIONS}
+BATCH = {"cluster": 5, "workloads": 3, "storage": 2, "networking": 4, "troubleshooting": 6}
 
 
 EDIT_STEPS = [(q["id"], s) for q in QUESTIONS for s in q["steps"].values() if s["type"] == "edit"]
+FX_EDIT_STEPS = [(q["id"], s) for q in FX_QUESTIONS for s in q["steps"].values() if s["type"] == "edit"]
 
 
 class Database(unittest.TestCase):
-    def test_library_in_cka_proportions(self):
-        self.assertEqual(len(QUESTIONS), 120)
+    def test_library_grows_in_batches_of_20_in_cka_proportions(self):
+        # 20 questions = 5/3/2/4/6 (the CKA weights 25/15/10/20/30)
+        self.assertEqual(set(BATCH), set(DOMAINS))
+        self.assertEqual(sum(BATCH.values()), 20)
+        for d, k in BATCH.items():
+            self.assertEqual(k * 5, DOMAINS[d]["weight"], d)
+        self.assertTrue(QUESTIONS and len(QUESTIONS) % 20 == 0, len(QUESTIONS))
+        batches = len(QUESTIONS) // 20
         counts = {d: sum(q["domain"] == d for q in QUESTIONS) for d in DOMAINS}
-        self.assertEqual(counts, {d: v["weight"] * 6 // 5 for d, v in DOMAINS.items()})  # 1.2 questions per %
+        self.assertEqual(counts, {d: k * batches for d, k in BATCH.items()})
+
+    def test_step_counts_follow_difficulty(self):
+        for q in QUESTIONS:  # easy/medium: 2-4 steps; hard tasks have the exam's shape, up to 6
+            n = len(t.correct_path(q))
+            self.assertTrue(2 <= n <= (6 if q["difficulty"] == 3 else 4), (q["id"], n))
+        hard = [q for q in QUESTIONS if q["difficulty"] == 3]
+        self.assertTrue(all(len(t.correct_path(q)) >= 5 for q in hard), "hard tasks: prepare, change, wait, verify")
+
+    def test_ids_carry_their_domain_prefix(self):
+        for q in QUESTIONS:
+            self.assertRegex(q["id"], rf"^{DOMAINS[q['domain']]['prefix']}-\d{{3}}$")
+
+    def test_menu_labels_fit(self):
+        for d in DOMAINS.values():  # the title menu line is 46 wide, with "4/20 20%" on the right
+            self.assertLessEqual(len(t.short_name(d)), 30, d["id"])
 
     def test_every_question_has_a_tip_and_explained_steps(self):
         for q in QUESTIONS:
             self.assertTrue(q.get("tip"), q["id"])
             for s in q["steps"].values():
                 self.assertTrue(s.get("explain"), q["id"])
+
+    def test_every_step_has_a_hint_that_hides_the_answer(self):
+        for q in QUESTIONS:
+            for sid, s in q["steps"].items():
+                self.assertTrue(s.get("hint"), (q["id"], sid))
+                self.assertIsNone(t.hint_problem(s), (q["id"], sid))
 
     def test_every_question_links_the_documentation(self):
         for q in QUESTIONS:
@@ -44,39 +78,39 @@ class Database(unittest.TestCase):
         q = copy.deepcopy(BY_ID["CLU-001"])
         q["stakes"] = "x" * (t.MAX_STORY + 1)
         with self.assertRaises(ValueError):
-            t.validate_question(q, DOMAINS, set())
+            t.validate_question(q, FX_DOMAINS, set())
 
     def test_pedagogy_fields_required_and_typed(self):
         for key in ("docs", "stakes", "analogy"):  # --validate and the tests must agree
             q = copy.deepcopy(BY_ID["NET-001"])
             del q[key]
             with self.assertRaises(ValueError, msg=key):
-                t.validate_question(q, DOMAINS, set())
+                t.validate_question(q, FX_DOMAINS, set())
         for bad in ("https://kubernetes.io/docs/", ["https://kubernetes.io/docs/"], []):
             q = copy.deepcopy(BY_ID["NET-001"])
             q["docs"] = bad  # a malformed file must give a clean error, not an AttributeError
             with self.assertRaises(ValueError, msg=repr(bad)):
-                t.validate_question(q, DOMAINS, set())
+                t.validate_question(q, FX_DOMAINS, set())
 
     def test_bad_docs_rejected(self):
         q = copy.deepcopy(BY_ID["NET-001"])
         q["docs"] = [{"title": "no url"}]
         with self.assertRaises(ValueError):
-            t.validate_question(q, DOMAINS, set())
+            t.validate_question(q, FX_DOMAINS, set())
         q["docs"] = [{"title": "plain http", "url": "http://kubernetes.io/docs/"}]
         with self.assertRaises(ValueError):
-            t.validate_question(q, DOMAINS, set())
+            t.validate_question(q, FX_DOMAINS, set())
 
     def test_duplicate_id_rejected(self):
         seen = {"CLU-001"}
         with self.assertRaises(ValueError):
-            t.validate_question(copy.deepcopy(BY_ID["CLU-001"]), DOMAINS, seen)
+            t.validate_question(copy.deepcopy(BY_ID["CLU-001"]), FX_DOMAINS, seen)
 
     def test_two_correct_options_rejected(self):
         q = copy.deepcopy(BY_ID["CLU-001"])
         q["steps"]["s1"]["options"][1]["correct"] = True
         with self.assertRaises(ValueError):
-            t.validate_question(q, DOMAINS, set())
+            t.validate_question(q, FX_DOMAINS, set())
 
     def test_time_limits_capped(self):
         for q in QUESTIONS:
@@ -114,7 +148,7 @@ class Judge(unittest.TestCase):
                     self.assertTrue(t.evaluate_command(s, t.correct_option(s)["cmd"])["ok"], q["id"])
 
     def test_edit_snippets_correct_passes_traps_fail(self):
-        self.assertGreaterEqual(len(EDIT_STEPS), 50)
+        self.assertGreaterEqual(len(EDIT_STEPS), len(QUESTIONS) // 4)  # aim: an edit step in >= 30 %
         for qid, step in EDIT_STEPS:
             self.assertFalse(t.evaluate_edit(step, t.as_text(step["prefill"]))["ok"], qid)
             for o in step["options"]:
@@ -123,7 +157,7 @@ class Judge(unittest.TestCase):
                 self.assertIs(res["option"], o, qid)  # the typed snippet is recognised
 
     def test_untouched_file_is_not_a_snippet(self):
-        for qid, step in EDIT_STEPS:  # TRB-001's "no limits" trap is a prefix of the prefill
+        for qid, step in EDIT_STEPS + FX_EDIT_STEPS:  # TRB-001's "no limits" trap is a prefix of the prefill
             self.assertIsNone(t.evaluate_edit(step, t.as_text(step["prefill"]))["option"], qid)
 
     def test_right_snippet_wrong_place(self):
@@ -138,7 +172,7 @@ class Judge(unittest.TestCase):
         q = copy.deepcopy(BY_ID["TRB-003"])
         q["steps"]["s3"]["options"][1]["snippet"] = ["    forward . /etc/resolv.conf "]
         with self.assertRaisesRegex(ValueError, "wrong snippet passes"):
-            t.validate_question(q, DOMAINS, set())
+            t.validate_question(q, FX_DOMAINS, set())
 
     def test_tabs_rejected(self):
         step = BY_ID["TRB-001"]["steps"]["s2"]
@@ -161,10 +195,8 @@ class Judge(unittest.TestCase):
 
 
 class Exam(unittest.TestCase):
-    # a pool shaped like the 100-question target: 25/15/10/20/30
-    POOL = [{"id": f"{d}-{i}", "domain": d} for d, n in
-            [("cluster", 25), ("workloads", 15), ("storage", 10), ("networking", 20), ("troubleshooting", 30)]
-            for i in range(n)]
+    # a pool shaped like the 100-question target: one question per percent of weight
+    POOL = [{"id": f"{d}-{i}", "domain": d} for d, v in DOMAINS.items() for i in range(v["weight"])]
 
     def test_plan_sums_and_follows_weights(self):
         for n in range(t.EXAM_MIN, t.EXAM_MAX + 1):
@@ -172,7 +204,10 @@ class Exam(unittest.TestCase):
             self.assertEqual(sum(plan.values()), n)
             for d, k in plan.items():  # never more than one question away from the exact share
                 self.assertLess(abs(k - n * DOMAINS[d]["weight"] / 100), 1, (n, d))
-            self.assertEqual(plan["troubleshooting"], max(plan.values()))  # ties allowed (n=19: 5 and 5)
+            for a in DOMAINS:  # a heavier domain never gets fewer questions than a lighter one
+                for b in DOMAINS:
+                    if DOMAINS[a]["weight"] > DOMAINS[b]["weight"]:
+                        self.assertGreaterEqual(plan[a], plan[b], (n, a, b))
 
     def test_exam_size_is_random_between_15_and_20(self):
         import random
@@ -204,15 +239,15 @@ class Finale(unittest.TestCase):
                 "steps": [{"ok": True, "time": 10.0}] * ok_steps + [{"ok": False, "time": 5.0}] * (not solved)}
 
     def test_win_at_pass_mark_with_partial_credit(self):
-        # CLU-001: 3/3, CLU-002: 1 of 3 steps -> 4/6 = 67 % >= 66 %
+        # CLU-001: 3/3, CLU-002: 1 of 3 steps -> 4/6 = 67 % >= 66 % (the CKA pass mark)
         info = t.finale_info([self.result("CLU-001", 3, True), self.result("CLU-002", 1, False)],
-                             QUESTIONS, DOMAINS)
+                             FX_QUESTIONS, FX_DOMAINS)
         self.assertEqual((info["percent"], info["won"]), (67, True))
         self.assertEqual(info["pods"], [("cluster", "1/2", "CrashLoopBackOff", 1, 45.0)])
         self.assertEqual(info["review"], ["CLU-002"])
 
     def test_game_over_below_pass_mark(self):
-        info = t.finale_info([self.result("TRB-002", 1, False)], QUESTIONS, DOMAINS)
+        info = t.finale_info([self.result("TRB-002", 1, False)], FX_QUESTIONS, FX_DOMAINS)
         self.assertEqual((info["percent"], info["won"]), (25, False))
         self.assertEqual(info["pods"][0][2], "Error")
 
@@ -244,6 +279,8 @@ class Options(unittest.TestCase):
         self.assertTrue({q["id"] for q in easy} <= {q["id"] for q in medium})
 
     def test_every_level_fills_a_20_question_exam_with_variety(self):
+        if len(QUESTIONS) < 100:
+            self.skipTest("needs at least 100 questions")
         need = t.exam_plan(DOMAINS, t.EXAM_MAX)
         for lv in t.LEVELS:
             pool = t.at_level(QUESTIONS, lv)
@@ -260,10 +297,10 @@ class Options(unittest.TestCase):
     def test_option_rows_change_settings_and_sound(self):
         snd = FakeSound()
         rows = {r["label"]: r for r in t.option_rows(QUESTIONS, snd)}
-        self.assertEqual(list(rows), ["MODE", "AUTOCOMPLETE", "TIMER", "MUSIC", "SOUND"])  # LEVEL: title menu
+        self.assertEqual(list(rows), ["MODE", "HINTS", "AUTOCOMPLETE", "TIMER", "MUSIC", "SOUND"])  # LEVEL: title menu
         self.assertEqual(rows["AUTOCOMPLETE"]["values"][rows["AUTOCOMPLETE"]["index"]], "OFF")  # off by default
         for label, value, key, expected in (("MODE", "LEARN", "learn", True), ("TIMER", "GLOBAL", "timer", "global"),
-                                            ("AUTOCOMPLETE", "ON", "autocomplete", True),
+                                            ("AUTOCOMPLETE", "ON", "autocomplete", True), ("HINTS", "ON", "hints", True),
                                             ("SOUND", "STEREO", "stereo", True)):
             rows[label]["on_change"](value)
             self.assertEqual(t.SETTINGS[key], expected, label)
@@ -271,6 +308,50 @@ class Options(unittest.TestCase):
         self.assertEqual(snd.calls, [("stereo", True), ("music", False)])
         for row in rows.values():  # every value explains itself on the screen
             self.assertEqual(set(row["hints"]), set(row["values"]), row["label"])
+
+    def test_mode_recall_is_exclusive_with_learn(self):
+        self.addCleanup(t.SETTINGS.update, learn=False, recall=False)
+        mode = {r["label"]: r for r in t.option_rows(QUESTIONS, FakeSound())}["MODE"]
+        self.assertEqual(mode["values"], ["EXAM", "LEARN", "RECALL"])
+        mode["on_change"]("RECALL")
+        self.assertEqual((t.SETTINGS["learn"], t.SETTINGS["recall"]), (False, True))
+        self.assertEqual({r["label"]: r for r in t.option_rows(QUESTIONS, FakeSound())}["MODE"]["index"], 2)
+        self.assertIn("RECALL", t.options_status(FakeSound()))
+        mode["on_change"]("LEARN")
+        self.assertEqual((t.SETTINGS["learn"], t.SETTINGS["recall"]), (True, False))
+
+    def test_recall_hides_the_options_until_half_time(self):
+        self.addCleanup(t.SETTINGS.update, recall=False)
+        self.assertIsNone(t.recall_hint_in(60, 0))  # not in RECALL mode: always shown
+        t.SETTINGS["recall"] = True
+        self.assertEqual(t.recall_hint_in(60, 10), 20)
+        self.assertIsNone(t.recall_hint_in(60, 30))  # half of the step's time: the hint
+        q = BY_ID["CLU-001"]
+        step = q["steps"][q["start"]]
+        hidden = "\n".join(x[0] for x in t.step_body(q, step, step["options"], 98, 30, hint_in=20))
+        shown = "\n".join(x[0] for x in t.step_body(q, step, step["options"], 98, 30))
+        for o in step["options"]:
+            self.assertNotIn(o["cmd"], hidden)
+            self.assertIn(o["cmd"], shown)
+        self.assertIn("appear in 20s", hidden)
+
+    def test_hint_never_gives_the_answer(self):
+        q = BY_ID["CLU-001"]
+        step = dict(q["steps"][q["start"]])
+        good = next(o for o in step["options"] if o.get("correct"))
+        for bad in ("", "x" * (t.MAX_HINT + 1), "Run " + good["cmd"] + " and look."):
+            self.assertTrue(t.hint_problem({**step, "hint": bad}), bad)
+        self.assertIsNone(t.hint_problem({**step, "hint": "Think about which object holds that setting."}))
+
+    def test_hint_shown_only_with_the_option(self):
+        self.addCleanup(t.SETTINGS.update, hints=False)
+        q = BY_ID["CLU-001"]
+        step = {**q["steps"][q["start"]], "hint": "Look at the kind of object first."}
+        text = lambda: "\n".join(x[0] for x in t.step_body(q, step, step["options"], 98, 30))  # noqa: E731
+        self.assertNotIn("HINT:", text())
+        t.SETTINGS["hints"] = True
+        self.assertIn("HINT: Look at the kind of object first.", text())
+        self.assertNotIn("HINT:", "\n".join(x[0] for x in t.step_body(q, step, step["options"], 98, 4)))  # tiny: dropped
 
     def test_status_line_shows_the_options(self):
         t.SETTINGS.update(learn=True, timer="global", level="easy", stereo=True)
@@ -288,7 +369,7 @@ class Options(unittest.TestCase):
                   "steps": [{"ok": True, "time": 5.0}] * 3}
         unreached = {"id": "CLU-002", "domain": "cluster", "points": 0, "solved": False, "steps": [],
                      "unreached": True}
-        info = t.finale_info([played, unreached], QUESTIONS, DOMAINS)
+        info = t.finale_info([played, unreached], FX_QUESTIONS, FX_DOMAINS)
         self.assertEqual((info["unreached"], info["percent"]), (1, 50))  # 3 of 6 steps
 
 
@@ -359,7 +440,7 @@ class ScreenFit(unittest.TestCase):
     in full in the game window (100x38). Mirrors the budget used by draw_step."""
 
     def setUp(self):
-        t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "bold", "dim", "rev", "normal")})
+        t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "magenta", "bold", "dim", "rev", "normal")})
 
     def body(self, q, s, h, w):
         budget = h - 5 - (3 if s["type"] == "command" else 8)
@@ -383,12 +464,22 @@ class ScreenFit(unittest.TestCase):
                 self.assertNotIn("│ …", lines, q["id"])
                 self.assertIn(t.expand([(q["scenario"], 0)], 98)[0][0], lines, q["id"])
 
+    def test_hints_on_keep_every_step_playable_and_full_at_100x38(self):
+        self.addCleanup(t.SETTINGS.update, hints=False)
+        t.SETTINGS["hints"] = True
+        self.test_every_step_playable_at_80x24()  # the hint is dropped first when space runs out
+        for q in QUESTIONS:
+            for s in q["steps"].values():
+                lines = self.body(q, s, 38, 100)
+                self.assertNotIn("│ …", lines, q["id"])
+                self.assertTrue(any(x.startswith("HINT: ") for x in lines), q["id"])
+
 
 class LearnTag(unittest.TestCase):
     """A learn-mode result (answers shown) must never pass for a real one."""
 
     def setUp(self):
-        t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "bold", "dim", "rev", "normal")})
+        t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "magenta", "bold", "dim", "rev", "normal")})
         self.addCleanup(t.SETTINGS.update, learn=False)
         q = BY_ID["CLU-002"]
         self.results = [{"id": q["id"], "domain": q["domain"], "points": 0, "solved": False,
@@ -397,8 +488,8 @@ class LearnTag(unittest.TestCase):
     def test_finale_and_summary_tagged_only_in_learn_mode(self):
         for learn in (False, True):
             t.SETTINGS["learn"] = learn
-            self.assertEqual(t.finale_info(self.results, QUESTIONS, DOMAINS)["learn"], learn)
-            text = [x[0] for x in t.summary_lines(self.results, DOMAINS)]
+            self.assertEqual(t.finale_info(self.results, FX_QUESTIONS, FX_DOMAINS)["learn"], learn)
+            text = [x[0] for x in t.summary_lines(self.results, FX_DOMAINS)]
             self.assertEqual(any("Learn mode" in x for x in text), learn)
             replay = next(x for x in text if "Replay them with" in x)
             self.assertEqual("--learn" in replay, learn)  # replaying keeps the mode
@@ -406,7 +497,7 @@ class LearnTag(unittest.TestCase):
 
 class LearnMode(unittest.TestCase):
     def setUp(self):
-        t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "bold", "dim", "rev", "normal")})
+        t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "magenta", "bold", "dim", "rev", "normal")})
         t.A["green"] = 1
         self.addCleanup(t.SETTINGS.update, learn=False)
 
@@ -452,7 +543,7 @@ class LearnMode(unittest.TestCase):
 class Pedagogy(unittest.TestCase):
     """Answer pages: stakes on a miss, the traps explained, the analogy in the recap."""
     def setUp(self):
-        t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "bold", "dim", "rev", "normal")})
+        t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "magenta", "bold", "dim", "rev", "normal")})
         self.addCleanup(t.SETTINGS.update, learn=False)
         self.q = BY_ID["CLU-001"]
         self.step = self.q["steps"][self.q["start"]]
@@ -510,17 +601,39 @@ class Pedagogy(unittest.TestCase):
                 for i, o in enumerate(s["options"]):
                     if o.get("correct"):
                         continue
-                    at = next(n for n, ln in enumerate(text) if ln.startswith(f"  {t.LABELS[i]}) "))
+                    at = next(n for n, ln in enumerate(text) if ln[2:].startswith(f"{t.LABELS[i]}) "))
                     nxt = text[at + 1:]
                     first = next(ln for ln in nxt if ln.strip().startswith("→"))
                     self.assertEqual(first.strip(), "→ " + o["why"], (q["id"], t.LABELS[i]))
+
+    def test_unsolved_page_explains_every_option_right_one_first(self):
+        for q in QUESTIONS:
+            for s in q["steps"].values():
+                good = t.correct_option(s)
+                trap = next(o for o in s["options"] if not o.get("correct"))
+                typed = trap.get("cmd") or t.apply_snippet(s, t.lines_of(trap["snippet"]))
+                for how, text in (("submit", typed), ("timeout", ""), ("skip", "")):
+                    res = t.judge(s, text, how)
+                    page = [x[0] for x in t.feedback_lines(s, s["options"], text, res, 1.0, 0)]
+                    rows = [n for n, ln in enumerate(page) if ln[:2] in ("✔ ", "✘ ") and ln[3:5] == ") "]
+                    self.assertEqual(len(rows), len(s["options"]), (q["id"], how))
+                    self.assertTrue(page[rows[0]].startswith("✔ "), (q["id"], how))  # the right one first
+                    joined = "\n".join(page)
+                    self.assertIn("→ " + s["explain"], joined, q["id"])
+                    for o in s["options"]:
+                        if not o.get("correct"):
+                            self.assertIn("→ " + o["why"], joined, q["id"])
+                    self.assertEqual(joined.count("^ your answer"), 1 if how == "submit" else 0, (q["id"], how))
+                    if "cmd" in good:
+                        for alias in good.get("aliases", []):
+                            self.assertIn(alias + "   (also accepted)", joined, q["id"])
 
     def test_blank_line_under_each_section_heading(self):
         q = BY_ID["CLU-001"]
         step = q["steps"][q["start"]]
         good = t.correct_option(step)["cmd"]
         for learn, typed, heads in ((True, good, ("Question:", "Why this is right:", "Why not the others:")),
-                                    (False, "kubectl get pods", ("Question:", "Why:", "The other traps:"))):
+                                    (False, "kubectl get pods", ("Question:", "All the options:"))):
             t.SETTINGS["learn"] = learn
             res = t.judge(step, typed, "submit")
             text = [x[0] for x in t.feedback_lines(step, step["options"], typed, res, 3.0, 0)]

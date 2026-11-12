@@ -8,7 +8,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from lib import Q, WORKER, ClusterTest, answer, final_file, node, sh, t
+from lib import Q, WORKER, ClusterTest, answer, final_file, node, sh, t, wrong
 from lib import run_pod as lib_run_pod
 
 
@@ -89,6 +89,17 @@ class NewNetworking(ClusterTest):
         res = run_pod("kubectl run t --rm -i --restart=Never --image=busybox:1.36 -n shop -- "
                       "sh -c 'nc -w 3 legacy-db 5432 </dev/null'", expect="hi")
         self.assertIn("hi", res.out)
+        # s5: the game's pg_isready, through the name, against a real PostgreSQL behind the slice
+        self.cleanup_cmd("kubectl delete pod pgdb -n shop --wait=false")
+        self.ok("kubectl run pgdb -n shop --image=postgres:17 --env=POSTGRES_PASSWORD=iaac")
+        self.ok("kubectl wait --for=condition=Ready pod/pgdb -n shop --timeout=300s", timeout=330)
+        db_ip = self.ok("kubectl get pod pgdb -n shop -o jsonpath='{.status.podIP}'").out.strip("'")
+        self.ok("kubectl apply -f -", stdin=final_file("NET-022", "s3").replace("10.20.30.40", db_ip))
+        time.sleep(5)
+        ready = run_pod(answer("NET-022", "s5"), expect="accepting connections")
+        self.assertIn("legacy-db:5432 - accepting connections", ready.out)
+        direct = run_pod(wrong("NET-022", "s5", 2), expect="5432")               # trap: no -n shop
+        self.assertNotIn("accepting connections", direct.out)
 
     def test_net023_https_gateway_and_cross_namespace_route(self):
         self.cleanup_cmd("kubectl delete httproute shop-route -n shop; kubectl delete gateway secure-gw -n infra; "

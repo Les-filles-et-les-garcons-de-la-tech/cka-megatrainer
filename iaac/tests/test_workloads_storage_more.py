@@ -174,7 +174,7 @@ class NewStorage(ClusterTest):
         self.assertEqual(self.ok("kubectl exec db-0 -n data -- cat /data/marker").out, "kept")
         # whenScaled: Delete removes only the claim of the condemned replica
         self.answer_ok("STO-011", "s3")
-        self.ok("kubectl scale sts db -n data --replicas=2")
+        self.answer_ok("STO-011", "s5")                                  # the game's scale-down
         end = time.time() + 120
         while time.time() < end and sh("kubectl get pvc data-db-2 -n data -o name").rc == 0:
             time.sleep(3)

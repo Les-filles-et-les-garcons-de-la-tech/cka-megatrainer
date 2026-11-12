@@ -1,0 +1,18 @@
+# The HA layout's load balancer: plain TCP to the API servers, with a TCP health check
+global
+    log /dev/log local0
+    maxconn 2000
+defaults
+    mode tcp
+    timeout connect 5s
+    timeout client 1h
+    timeout server 1h
+frontend kube-apiserver
+    bind *:6443
+    default_backend kube-apiserver
+backend kube-apiserver
+    balance roundrobin
+    option tcp-check
+{% for vm in vms if vm.role == 'control_plane' %}
+    server {{ vm.name }} {{ vm_net_prefix }}.{{ vm.ip }}:6443 check
+{% endfor %}

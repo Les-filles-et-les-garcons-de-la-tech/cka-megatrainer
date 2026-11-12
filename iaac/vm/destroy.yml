@@ -1,0 +1,45 @@
+# `make vm-down`: the CKA lab's VMs (either layout), their disks and seeds, the network and the pool.
+# Only names starting with 'cka' are touched. The downloaded cloud image stays in iaac/vm/.cache
+# (delete it by hand), the SSH key in iaac/vm/.ssh.
+- name: Remove the CKA lab VMs
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files: [group_vars/all.yml]
+  environment: {LC_ALL: C, LANG: C}  # virsh speaks English: the checks read its output
+  vars:
+    virsh: "virsh -c {{ libvirt_uri }}"
+  tasks:
+    - name: Stop and undefine the domains
+      ansible.builtin.shell: |
+        {{ virsh }} destroy {{ vm_prefix }}{{ item.name }} 2>/dev/null
+        {{ virsh }} undefine {{ vm_prefix }}{{ item.name }} 2>/dev/null && echo removed || true
+      register: dom
+      changed_when: "'removed' in dom.stdout"
+      loop: "{{ vms_all }}"
+      loop_control: {label: "{{ vm_prefix }}{{ item.name }}"}
+
+    - name: Delete the node volumes
+      ansible.builtin.shell: |
+        for v in {{ vm_prefix }}{{ item.name }}.qcow2 {{ vm_prefix }}{{ item.name }}-seed.iso; do
+          {{ virsh }} vol-delete --pool {{ vm_pool }} $v 2>/dev/null && echo removed
+        done; true
+      register: vols
+      changed_when: "'removed' in vols.stdout"
+      loop: "{{ vms_all }}"
+      loop_control: {label: "{{ vm_prefix }}{{ item.name }}"}
+
+    - name: Delete the base volume, the pool and the network
+      ansible.builtin.shell: |
+        {{ virsh }} vol-delete --pool {{ vm_pool }} {{ vm_base_volume }} 2>/dev/null && echo removed
+        {{ virsh }} pool-destroy {{ vm_pool }} 2>/dev/null; {{ virsh }} pool-delete {{ vm_pool }} 2>/dev/null
+        {{ virsh }} pool-undefine {{ vm_pool }} 2>/dev/null && echo removed
+        {{ virsh }} net-destroy {{ vm_network }} 2>/dev/null
+        {{ virsh }} net-undefine {{ vm_network }} 2>/dev/null && echo removed
+        true
+      register: rest
+      changed_when: "'removed' in rest.stdout"
+
+    - name: Generated files of the old cluster
+      ansible.builtin.file: {path: "{{ playbook_dir }}/{{ item }}", state: absent}
+      loop: [../.kubeconfig-vm, .cache/admin.conf, .cache/network.xml, .cache/lb, .cache/cp1, .cache/cp2, .cache/cp3, .cache/node01]

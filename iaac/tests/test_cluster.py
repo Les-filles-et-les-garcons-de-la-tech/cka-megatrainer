@@ -45,8 +45,11 @@ class Kubeconfig(ClusterTest):
             cfg = f"{d}/config"
             env = dict(ENV, KUBECONFIG=cfg)
             sh(f"kubectl config view --minify --flatten > {cfg}")
-            sh(f"kubectl config rename-context kind-{CLUSTER} prod-admin@prod", env=env)
-            sh(f"kubectl config set-context dev-admin@dev --cluster=kind-{CLUSTER} --user=kind-{CLUSTER}", env=env)
+            ctx = sh("kubectl config current-context", env=env).out.strip()             # kind-cka-test or cka-vm
+            cluster = sh("kubectl config view -o jsonpath='{.contexts[0].context.cluster}'", env=env).out.strip("'")
+            user = sh("kubectl config view -o jsonpath='{.contexts[0].context.user}'", env=env).out.strip("'")
+            sh(f"kubectl config rename-context {ctx} prod-admin@prod", env=env)
+            sh(f"kubectl config set-context dev-admin@dev --cluster={cluster} --user={user}", env=env)
             sh("kubectl config use-context dev-admin@dev", env=env)
             listing = self.ok(answer("CLU-010", "s1"), env=env).out
             self.assertIn("prod-admin@prod", listing)

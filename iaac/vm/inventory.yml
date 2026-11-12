@@ -1,0 +1,16 @@
+# Groups for the chosen layout (make vm-up: exam, make vm-up HA=1: ha), built from 'vms':
+# control_plane (cp1 first), workers, lb, and nodes = control planes + workers.
+- name: Lab inventory
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files: [group_vars/all.yml]
+  tasks:
+    - name: One host per VM
+      ansible.builtin.add_host:
+        name: "{{ item.name }}"
+        ansible_host: "{{ vm_net_prefix }}.{{ item.ip }}"
+        groups: "{{ ['vms', item.role] + (['nodes'] if item.role in ['control_plane', 'worker'] else []) + (['workers'] if item.role == 'worker' else []) }}"
+      loop: "{{ vms }}"
+      loop_control: {label: "{{ item.name }}"}
+      changed_when: false

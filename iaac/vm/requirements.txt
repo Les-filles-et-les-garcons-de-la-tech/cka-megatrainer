@@ -1,0 +1,2 @@
+# Ansible for iaac/vm (CKA lab), installed in iaac/vm/.venv by `make vm-venv` (host Python, no system change)
+ansible-core==2.18.6

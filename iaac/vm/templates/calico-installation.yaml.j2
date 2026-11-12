@@ -1,0 +1,13 @@
+# Calico {{ calico_version }} through the Tigera operator: one IPv4 pool = the kubeadm podSubnet
+apiVersion: operator.tigera.io/v1
+kind: Installation
+metadata:
+  name: default
+spec:
+  calicoNetwork:
+    ipPools:
+      - name: default-ipv4-ippool
+        cidr: {{ pod_subnet }}
+        encapsulation: VXLAN
+        natOutgoing: Enabled
+        nodeSelector: all()

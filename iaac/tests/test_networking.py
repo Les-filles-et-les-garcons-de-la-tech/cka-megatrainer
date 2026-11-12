@@ -8,7 +8,7 @@ import time
 import unittest
 from pathlib import Path
 
-from lib import ENV, WORKER, ClusterTest, answer, final_file, node, prefill, sh
+from lib import ENV, WORKER, ClusterTest, answer, final_file, node, prefill, sh, wrong
 from lib import run_pod as lib_run_pod
 
 NO_TTY = lambda cmd: cmd.replace(" -it ", " -i ")  # noqa: E731  # the tests have no terminal
@@ -168,16 +168,22 @@ class Policies(ClusterTest):
         self.ok("kubectl wait --for=condition=Available deploy/web -n prod --timeout=90s")
         self.apply("apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: {name: default-deny, namespace: prod}\n"
                    "spec: {podSelector: {}, policyTypes: [Ingress]}\n")
+        self.assertIn("default-deny", self.answer_ok("NET-009", "s0").out)        # s0: what is already there
         self.assertIn("kubernetes.io/metadata.name=monitoring", self.answer_ok("NET-009", "s1").out)
         self.apply(final_file("NET-009", "s2"))
         time.sleep(5)
         self.assertIn("Welcome to nginx", run_pod(answer("NET-009", "s3")).out)
         blocked = run_pod("kubectl run t2 --rm -i --restart=Never --image=busybox:1.36 -n team-a -- wget -qO- -T 3 web.prod")
-        self.assertNotIn("Welcome to nginx", blocked.out)                    # only 'monitoring' is let in
+        self.assertNotIn("Welcome to nginx", blocked.out)
+        other = run_pod(answer("NET-009", "s4"))                                    # s4: the game's 'nothing else'
+        self.assertNotIn("Welcome to nginx", other.out)
+        self.assertIn("timed out", other.out)
+        dns = run_pod(wrong("NET-009", "s4", 2), expect="Address")                 # trap: DNS answers anyway
+        self.assertIn("web.prod", dns.out)                    # only 'monitoring' is let in
 
     def test_net010_egress_locked_down_but_dns_kept(self):
         self.cleanup_cmd("kubectl delete netpol --all -n app; kubectl delete deploy frontend backend -n app; kubectl delete svc backend -n app")
-        self.ok("kubectl create deployment backend --image=nginx:1.26 --port=8080 -n app")
+        self.ok("kubectl create deployment backend --image=nginxinc/nginx-unprivileged:1.27 --port=8080 -n app")
         self.ok("kubectl create deployment frontend --image=busybox:1.36 -n app -- sleep 3600")
         self.ok("kubectl expose deployment backend --port=8080 -n app")
         self.ok("kubectl wait --for=condition=Available deploy/frontend deploy/backend -n app --timeout=90s")
@@ -187,7 +193,10 @@ class Policies(ClusterTest):
         res = sh(answer("NET-010", "s3"))                                     # DNS still works through the policy
         self.assertIn("Name:", res.out)                                       # (busybox exits 1 on a bare name even so)
         self.assertIn("backend.app.svc.cluster.local", res.out)
-        self.fails("kubectl exec deploy/frontend -n app -- wget -qO- -T 3 http://example.com")  # all else is blocked
+        page = self.answer_ok("NET-010", "s4")                                     # s4: the allowed path
+        self.assertIn("Welcome to nginx", page.out)
+        cut = self.fails(answer("NET-010", "s5"))                                  # s5: everything else times out
+        self.assertIn("timed out", cut.out)  # all else is blocked
 
 
 class IngressAndGateway(ClusterTest):

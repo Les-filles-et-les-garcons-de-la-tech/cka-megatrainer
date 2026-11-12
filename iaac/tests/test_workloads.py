@@ -6,7 +6,7 @@ import time
 import unittest
 from pathlib import Path
 
-from lib import PODMAN, WORKER, ClusterTest, answer, final_file, node, sh, wait_for
+from lib import PODMAN, WORKER, ClusterTest, answer, final_file, node, sh, wait_for, wrong
 
 
 def pods(selector, ns):
@@ -117,8 +117,11 @@ class Scheduling(ClusterTest):
         self.apply(final_file("WRK-010", "s2"))
         wait_for("kubectl get pod analytics -n data", "Pending", 30)
         self.assertIn("Pending", self.ok("kubectl get pod analytics -n data").out)  # hard requirement: not placed
+        why = wait_for(answer("WRK-010", "s4"), "FailedScheduling", 60).out         # s4: the scheduler's reason
+        self.assertIn("didn't match Pod's node affinity/selector", why)
+        self.assertEqual(sh("kubectl logs analytics -n data").out, "")                 # trap: nothing at all
         self.ok(answer("WRK-010", "s3").replace("node02", WORKER))
-        res = wait_for("kubectl get pod analytics -n data -o wide", WORKER, 90)
+        res = wait_for(answer("WRK-010", "s5"), WORKER, 90)                           # s5: the NODE column
         self.assertIn(WORKER, res.out)
 
     def test_wrk011_priority_class_and_deployment(self):
@@ -217,7 +220,10 @@ class Configuration(ClusterTest):
         res = sh("kubectl run bare --image=nginx:1.26 -n team-a")
         self.assertFalse(res, "a Pod without requests must be rejected under the quota")
         self.assertIn("must specify", res.out)
-        self.apply(final_file("WRK-013", "s2"))
+        with tempfile.TemporaryDirectory() as d:                                  # s4: the game's apply
+            Path(d, "limits.yaml").write_text(final_file("WRK-013", "s2"))
+            self.answer_ok("WRK-013", "s4", cwd=d)
+            self.assertIn("does not match the namespace", self.fails(wrong("WRK-013", "s4", 1), cwd=d).out)
         self.ok("kubectl run bare --image=nginx:1.26 -n team-a")                  # the default is injected now
         self.assertIn("100m", self.ok("kubectl get pod bare -n team-a -o jsonpath='{.spec.containers[0].resources.requests}'").out)
         self.ok("kubectl delete pod bare -n team-a")
@@ -226,6 +232,9 @@ class Configuration(ClusterTest):
         self.assertRegex(res.out, r"pods\s+\d+\s+10")
         res = wait_for("kubectl describe rs -n team-a", "exceeded quota", 60)
         self.assertIn("exceeded quota: team-a-quota", res.out)
+        self.answer_ok("WRK-013", "s5")                                             # s5: desired = allowed
+        res = wait_for("kubectl get deploy web -n team-a", "10/10", 120)
+        self.assertIn("10/10", res.out)
 
 
 class Jobs(ClusterTest):

@@ -1,0 +1,111 @@
+# The CKA lab, libvirt side, on this machine: storage pool, network, Ubuntu base image, one cloud-init seed
+# and one copy-on-write disk per node, the domains, then wait for SSH. Idempotent: run it again and
+# nothing changes. No sudo: the user is in the 'libvirt' group (see README.md).
+- name: Lab VMs on libvirt
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files: [group_vars/all.yml]
+  environment: {LC_ALL: C, LANG: C}  # virsh speaks English: the checks read its output
+  vars:
+    virsh: "virsh -c {{ libvirt_uri }}"
+    cache: "{{ playbook_dir }}/.cache"
+  tasks:
+    - name: libvirt answers (qemu:///system, user in group libvirt)
+      ansible.builtin.command: "{{ virsh }} version"
+      changed_when: false
+
+    - name: Local directories
+      ansible.builtin.file: {path: "{{ item.path }}", state: directory, mode: "{{ item.mode }}"}
+      loop:
+        - {path: "{{ playbook_dir }}/.ssh", mode: "0700"}
+        - {path: "{{ cache }}", mode: "0755"}
+
+    - name: SSH key for the nodes (lab only)
+      ansible.builtin.command: ssh-keygen -q -t ed25519 -N '' -C cka-lab -f {{ playbook_dir }}/.ssh/id_ed25519
+      args: {creates: "{{ playbook_dir }}/.ssh/id_ed25519"}
+
+    - name: Read the public key
+      ansible.builtin.slurp: {src: "{{ playbook_dir }}/.ssh/id_ed25519.pub"}
+      register: pubkey
+
+    - name: SSH client config (ssh -F iaac/vm/.ssh/config cp1)
+      ansible.builtin.template: {src: ssh_config.j2, dest: "{{ playbook_dir }}/.ssh/config", mode: "0600"}
+
+    - name: Ubuntu 24.04 cloud image (checksum verified)
+      ansible.builtin.get_url:
+        url: "{{ ubuntu_image_url }}"
+        dest: "{{ cache }}/{{ ubuntu_image_url | basename }}"
+        checksum: "sha256:{{ ubuntu_image_sha256 }}"
+        mode: "0644"
+        timeout: 600
+
+    # --- storage pool ---------------------------------------------------------------------------
+    - name: Storage pool exists?
+      ansible.builtin.command: "{{ virsh }} pool-info {{ vm_pool }}"
+      register: pool
+      changed_when: false
+      failed_when: false
+
+    - name: Create the storage pool
+      ansible.builtin.shell: |
+        set -e
+        {{ virsh }} pool-define-as {{ vm_pool }} dir --target {{ vm_pool_path }}
+        {{ virsh }} pool-build {{ vm_pool }}
+        {{ virsh }} pool-autostart {{ vm_pool }}
+      when: pool.rc != 0
+
+    - name: Start the storage pool
+      ansible.builtin.command: "{{ virsh }} pool-start {{ vm_pool }}"
+      when: pool.rc != 0 or 'running' not in pool.stdout
+
+    # --- network ----------------------------------------------------------------------------------
+    - name: Network definition
+      ansible.builtin.template: {src: network.xml.j2, dest: "{{ cache }}/network.xml", mode: "0644"}
+
+    - name: Network exists?
+      ansible.builtin.command: "{{ virsh }} net-info {{ vm_network }}"
+      register: net
+      changed_when: false
+      failed_when: false
+
+    - name: Define the network
+      ansible.builtin.shell: |
+        set -e
+        {{ virsh }} net-define {{ cache }}/network.xml
+        {{ virsh }} net-autostart {{ vm_network }}
+      when: net.rc != 0
+
+    - name: Start the network
+      ansible.builtin.command: "{{ virsh }} net-start {{ vm_network }}"
+      when: "net.rc != 0 or net.stdout is not search('Active:\\s+yes')"
+
+    # --- base image -----------------------------------------------------------------------------
+    - name: Base volume exists?
+      ansible.builtin.command: "{{ virsh }} vol-info --pool {{ vm_pool }} {{ vm_base_volume }}"
+      register: base
+      changed_when: false
+      failed_when: false
+
+    - name: Upload the cloud image as the base volume (read-only backing file of every node)
+      ansible.builtin.shell: |
+        set -e
+        size=$(stat -c %s "{{ cache }}/{{ ubuntu_image_url | basename }}")
+        {{ virsh }} vol-create-as {{ vm_pool }} {{ vm_base_volume }} "${size}b" --format raw
+        {{ virsh }} vol-upload --pool {{ vm_pool }} {{ vm_base_volume }} "{{ cache }}/{{ ubuntu_image_url | basename }}"
+        {{ virsh }} pool-refresh {{ vm_pool }}
+      when: base.rc != 0
+
+    # --- one node at a time -----------------------------------------------------------------------
+    - name: Nodes
+      ansible.builtin.include_tasks: host-vm.yml
+      loop: "{{ vms }}"
+      loop_control: {loop_var: vm, label: "{{ vm.name }}"}
+
+    - name: Wait for SSH on every node
+      ansible.builtin.wait_for:
+        host: "{{ vm_net_prefix }}.{{ item.ip }}"
+        port: 22
+        timeout: 300
+      loop: "{{ vms }}"
+      loop_control: {label: "{{ item.name }}"}

@@ -14,3 +14,9 @@ __pycache__/
 iaac/.bin/
 iaac/.kubeconfig
 iaac/.helm/
+# the VM lab (iaac/vm): its kubeconfig, Ansible venv, image cache and SSH key; run locks
+iaac/.kubeconfig-vm
+iaac/vm/.venv/
+iaac/vm/.cache/
+iaac/vm/.ssh/
+iaac/.run-*.lock

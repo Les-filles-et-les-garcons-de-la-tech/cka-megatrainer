@@ -15,7 +15,7 @@ import shlex
 import time
 import unittest
 
-from lib import CONTROL_PLANE, WORKER, ClusterTest, answer, final_file, node, sh, wait_for
+from lib import CONTROL_PLANE, WORKER, ClusterTest, answer, controllers_active, final_file, node, run_pod, sh, wait_for
 
 MANIFESTS = "/etc/kubernetes/manifests"
 
@@ -25,10 +25,13 @@ def api_up():
 
 
 def wait_api(up, timeout=240):
+    """Wait for the API server to go down or come back. Coming back also waits for the controller
+    manager and the scheduler: every API server restart makes them lose their lease and exit, and
+    until they renew it no ReplicaSet, Pod or CSR is processed (the next test would see that)."""
     end = time.time() + timeout
     while time.time() < end:
         if api_up() == up:
-            return True
+            return controllers_active(time.time()) if up else True
         time.sleep(3)
     return False
 
@@ -62,6 +65,11 @@ class StaticPodBreakFix(ClusterTest):
         self.assertIn("--advertise-address=", final_file("TRB-018", "s3"))         # the game's fixed line
         self.restore_manifest("kube-apiserver")
         self.assertTrue(api_up(), "the API server did not come back")
+        running = node(answer("TRB-018", "s4").replace("sudo ", "")).out           # s4: a NEW container runs
+        self.assertIn("Running", running)
+        self.assertNotIn(cid[:12], running)
+        self.assertFalse(node("systemctl restart kube-apiserver"))                 # trap: no such unit
+        self.assertIn(CONTROL_PLANE, self.answer_ok("TRB-018", "s5").out)          # s5: kubectl answers again
 
     def test_trb019_scheduler_that_cannot_load_its_kubeconfig(self):
         self.cleanup_cmd("kubectl delete deploy sched-test")
@@ -84,6 +92,10 @@ class StaticPodBreakFix(ClusterTest):
         self.restore_manifest("kube-scheduler")
         res = wait_for(f"kubectl get pod {pod}", "Running", 150)
         self.assertIn("Running", res.out)
+        self.assertIn("Running", wait_for(answer("TRB-019", "s4"), "Running", 90).out)   # s4: by its label
+        self.assertFalse(sh("kubectl get deployment kube-scheduler -n kube-system"))       # trap: a static Pod
+        wide = self.answer_ok("TRB-019", "s5").out                                          # s5: the node column
+        self.assertRegex(wide, rf"{pod}\s.*\s({WORKER}|{CONTROL_PLANE})\s")
 
     def test_trb020_controller_manager_with_a_broken_ca_path(self):
         self.cleanup_cmd("kubectl delete deploy cm-test")
@@ -100,8 +112,13 @@ class StaticPodBreakFix(ClusterTest):
         self.assertIn("/etc/kubernetes/pki/ca.crt.missing", log.out)
         self.assertIn("--client-ca-file=/etc/kubernetes/pki/ca.crt", final_file("TRB-020", "s3"))
         self.restore_manifest("kube-controller-manager")
-        res = wait_for("kubectl get rs -l app=cm-test", "cm-test", 150)
-        self.assertIn("cm-test", res.out)
+        s4 = answer("TRB-020", "s4").replace("app=web", "app=cm-test")
+        res = wait_for(s4, "cm-test-", 150)                                         # s4: web-<hash> appears
+        self.assertIn("cm-test-", res.out)
+        self.assertFalse(sh("kubectl get rs cm-test"))                              # trap: the RS name has a hash
+        self.ok(answer("TRB-020", "s5").replace("deployment web", "deployment cm-test") + " --timeout=150s",
+                "successfully rolled out")                                         # s5
+        self.assertFalse(sh("kubectl wait --for=condition=Ready deployment/cm-test --timeout=5s"))  # trap
 
     def test_trb021_apiserver_pointing_at_the_wrong_etcd_port(self):
         self.break_manifest("kube-apiserver", "--etcd-servers=https://127.0.0.1:2379",
@@ -123,6 +140,10 @@ class StaticPodBreakFix(ClusterTest):
         self.assertIn("https://127.0.0.1:2379", listen)                            # what etcd really listens on
         self.assertIn("--etcd-servers=https://127.0.0.1:2379", final_file("TRB-021", "s3"))
         self.restore_manifest("kube-apiserver")
+        self.assertIn("Running", node(answer("TRB-021", "s4").replace("sudo ", "")).out)   # s4
+        ready = self.answer_ok("TRB-021", "s5").out                                         # s5: every check
+        self.assertIn("[+]etcd ok", ready)
+        self.assertIn("readyz check passed", ready)
 
 
 def wait_for_node(cmd, expect, timeout):
@@ -157,6 +178,8 @@ class KubeletAndProxy(ClusterTest):
         self.assertTrue(node(answer("TRB-022", "s4").replace("sudo ", ""), which=WORKER))
         res = wait_for(f"kubectl get node {WORKER}", " Ready", 150, every=5)
         self.assertNotIn("NotReady", res.out)
+        nodes = self.answer_ok("TRB-022", "s5").out                                 # s5: from the control plane
+        self.assertRegex(nodes, rf"{WORKER}\s+Ready")
 
     def test_trb028_kube_proxy_with_a_bad_mode(self):
         cm = json.loads(self.ok("kubectl get cm kube-proxy -n kube-system -o json").out)
@@ -188,6 +211,13 @@ class KubeletAndProxy(ClusterTest):
         self.answer_ok("TRB-028", "s4")
         res = wait_for("kubectl get pods -n kube-system -l k8s-app=kube-proxy", "Running", 150)
         self.assertIn("Running", res.out)
+        # s5: the ClusterIP path works again, through Service 'web' (a throw-away backend for the check)
+        self.cleanup_cmd("kubectl delete deploy web; kubectl delete svc web")
+        self.ok("kubectl create deployment web --image=nginx:1.27")
+        self.ok("kubectl expose deployment web --port=80")
+        self.ok("kubectl rollout status deployment web --timeout=150s")
+        page = run_pod(answer("TRB-028", "s5"), expect="Welcome to nginx")
+        self.assertIn("Welcome to nginx", page.out, page)
 
 
 @unittest.skipUnless(os.environ.get("DESTRUCTIVE"), "set DESTRUCTIVE=1: these tests break and repair the cluster")
@@ -205,10 +235,13 @@ class Certificates(ClusterTest):
         self.assertTrue(out, out)
         self.assertTrue(wait_api(False, 120), "the control plane should stop")
         time.sleep(20)                                                                # as the question says: ~20 s
-        self.assertTrue(node(f"mv /root/sp/*.yaml {MANIFESTS}/"))
+        self.assertTrue(node(answer("TRB-025", "s5")))                                # move them back (game's command)
         self.assertTrue(wait_api(True, 300), "the control plane did not come back with the new certificates")
         self.assertTrue(node(answer("TRB-025", "s4")))                                # re-copy admin.conf
         self.assertTrue(node("test -s /root/.kube/config"))
+        # CLU-011 s4/s5 are the same moves with its own directory: check the commands by name
+        self.assertEqual(answer("CLU-011", "s4"), "mv /root/manifests-bak/*.yaml /etc/kubernetes/manifests/")
+        self.assertEqual(answer("CLU-011", "s5"), "cp /etc/kubernetes/admin.conf /root/.kube/config")
 
 
 if __name__ == "__main__":

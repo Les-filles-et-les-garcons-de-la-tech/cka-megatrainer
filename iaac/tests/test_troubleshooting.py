@@ -7,7 +7,7 @@ import time
 import unittest
 from pathlib import Path
 
-from lib import CONTROL_PLANE, ENV, PODMAN, WORKER, ClusterTest, run_pod, answer, final_file, node, prefill, sh, wait_for
+from lib import CONTROL_PLANE, ENV, PODMAN, VM, WORKER, ClusterTest, run_pod, answer, final_file, node, prefill, sh, wait_for, wrong
 
 HASHED = re.compile(r"\b[a-z][a-z0-9-]*-[0-9a-f]{6,10}-[a-z0-9]{5}\b")  # the game's made-up Pod names
 
@@ -56,6 +56,13 @@ spec:
         # the same check with a newer busybox misleads: that is why the game pins 1.28
         newer = sh(answer("TRB-003", "s1").replace(" -it ", " -i ").replace("busybox:1.28", "busybox:1.36"), timeout=120)
         self.assertIn("NXDOMAIN", newer.out)
+        # s4 + s5: restart CoreDNS the declarative way, wait (the next tests need DNS), test again
+        self.addCleanup(lambda: sh("kubectl rollout status deployment coredns -n kube-system --timeout=150s", timeout=170))
+        self.answer_ok("TRB-003", "s4")
+        self.assertIn("not found", sh(wrong("TRB-003", "s4", 1)).out)               # trap: kube-dns is the Service
+        self.ok("kubectl rollout status deployment coredns -n kube-system --timeout=150s", timeout=170)
+        again = run_pod(answer("TRB-003", "s5"), expect="Name:", timeout=240)
+        self.assertIn("kubernetes.default", again.out)
 
     def test_trb004_imagepullbackoff_fixed_by_set_image(self):
         self.cleanup_cmd("kubectl delete deploy api")
@@ -337,7 +344,8 @@ class NodeReadOnly(ClusterTest):
         self.assertIn("RuntimeReady", info)                            # explain names these conditions
         self.assertIn("NetworkReady", info)
         self.assertTrue(node(answer("TRB-027", "s1")))
-        self.assertIn("10-kindnet.conflist", node(answer("TRB-027", "s1")).out)
+        cni = "10-calico.conflist" if VM else "10-kindnet.conflist"     # the lab runs Calico, kind kindnet
+        self.assertIn(cni, node(answer("TRB-027", "s1")).out)
 
     def test_trb026_disk_and_image_checks(self):
         self.assertIn("Filesystem", node(answer("TRB-026", "s2")).out)

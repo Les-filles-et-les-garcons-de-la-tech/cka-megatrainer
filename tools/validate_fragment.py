@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """Validate a batch of NEW questions (a fragment file) before merging it into questions.json.
 
-Stricter than --validate: id range, domain, 2-5 steps, 3-4 options, explain/tip/recap, command
+Stricter than --validate: id range, domain, 2-4 steps (hard: 5-6), a hint per step, 3-4 options, explain/tip/recap, command
 length (<= 130), correct command accepted by the judge, share of questions with an edit step.
 
 usage: python3 tools/validate_fragment.py FRAGMENT.json PREFIX FIRST LAST
-  e.g. python3 tools/validate_fragment.py new-clu.json CLU 26 31   (ids CLU-026 .. CLU-031)
+  e.g. python3 tools/validate_fragment.py new-clu.json CLU 31 35   (ids CLU-031 .. CLU-035)
 """
 import json, re, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import cka_trainer as t
 
-DOMAIN = {"CLU": "cluster", "WRK": "workloads", "STO": "storage", "NET": "networking", "TRB": "troubleshooting"}
 path, prefix, first, last = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
 domains, existing = t.load_db(t.DEFAULT_DB)
+DOMAIN = {d["prefix"]: d["id"] for d in domains.values()}  # e.g. CLU -> cluster
 frag = json.load(open(path, encoding="utf-8"))
 qs = frag["questions"]
 errors, warnings = [], []
@@ -37,13 +37,18 @@ for q in qs:
         if k not in q:
             errors.append(f"{qid}: missing '{k}'")
     path_steps = t.correct_path(q)
-    if not 2 <= len(path_steps) <= 5:  # hard questions may take 5: one step per real stage
-        errors.append(f"{qid}: the solution path must have 2-5 steps (has {len(path_steps)})")
+    least, most = (5, 6) if q.get("difficulty") == 3 else (2, 4)  # hard tasks have the real exam's
+    if not least <= len(path_steps) <= most:                          # shape: prepare, change, wait, verify
+        errors.append(f"{qid}: the solution path must have {least}-{most} steps (has {len(path_steps)})")
     if any(s["type"] == "edit" for _, s in path_steps):
         edit_qs += 1
     for sid, s in q["steps"].items():
         if not s.get("explain"):
             errors.append(f"{qid}/{sid}: missing 'explain'")
+        if not s.get("hint"):
+            errors.append(f"{qid}/{sid}: missing 'hint' (OPTIONS > HINTS)")
+        elif t.hint_problem(s):
+            errors.append(f"{qid}/{sid}: hint {t.hint_problem(s)}")
         if not 3 <= len(s["options"]) <= 4:
             errors.append(f"{qid}/{sid}: needs 3-4 options")
         if not 30 <= s.get("time_limit", 0) <= 120:

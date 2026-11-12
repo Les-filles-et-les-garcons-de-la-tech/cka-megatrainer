@@ -9,9 +9,13 @@ provoked it.
 ```
 iaac/
 ├── cluster.sh        create / check / delete the test cluster (kind, v1.37.0)
-├── addons.sh         Gateway API CRDs + metrics-server (what a bare kind cluster lacks)
+├── addons.sh         Gateway API CRDs + metrics-server (+ local-path 'standard' on the VMs)
+├── tools.sh          pinned, checksum-verified helm into iaac/.bin (make iaac-tools)
 ├── kind/cluster.yaml one control-plane node + one worker
-├── run-tests.sh      run the tests against that cluster
+├── vm/               the VM lab: Ubuntu 24.04 VMs on libvirt, kubeadm, Calico; an HA layout with
+│                     3 control planes behind HAProxy (see vm/README.md, make vm-up / vm-test)
+├── run-tests.sh      run the tests against that cluster (IAAC_TARGET=vm: the VM lab; runs are
+│                     serialized with flock: two suites never hit the same cluster at once)
 ├── PENDING.txt       questions whose cluster test is still to be written (should stay empty)
 └── tests/
     ├── lib.py                  helpers (answer(), final_file(), prefill(), node(), wait_for()…)
@@ -22,6 +26,8 @@ iaac/
     ├── test_networking.py      NET-*  services and networking
     ├── test_troubleshooting.py TRB-*  troubleshooting
     ├── test_destructive.py     TRB-/CLU-  break and repair the control plane (opt-in)
+    ├── test_exam_shape.py      the verification steps of the 5-6 step hard questions
+    ├── test_ha_*.py            HA questions: what one control plane can prove / the real HA layout
     └── test_coverage.py        every question has a test (needs no cluster)
 ```
 
@@ -40,6 +46,10 @@ make iaac-test-destructive                              # also break and repair 
 HOST_AFFECTING=1 make iaac-test ARGS=test_cluster      # also run CLU-012 for real (see below)
 make iaac-down            # delete the cluster
 make iaac-coverage        # which tests exercise which question (no cluster needed)
+make iaac-tools           # pinned helm into iaac/.bin (the Helm tests skip without it)
+
+make vm-up && make vm-test                 # the same suite on Ubuntu VMs (iaac/vm/README.md)
+make vm-up HA=1 && make vm-test-destructive ARGS=test_ha_real   # the HA questions for real
 ```
 
 `make test` also runs the coverage check, which needs no cluster.

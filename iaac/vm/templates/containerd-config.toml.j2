@@ -1,0 +1,10 @@
+# containerd {{ containerd_version }}, config version 3: only what differs from the defaults.
+version = 3
+
+[plugins.'io.containerd.cri.v1.images'.registry]
+  config_path = '/etc/containerd/certs.d'
+
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc]
+  runtime_type = 'io.containerd.runc.v2'
+  [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
+    SystemdCgroup = true

@@ -1,0 +1,127 @@
+# kubeadm cluster. exam layout: cp1 + node01. HA layout (HA=1): cp1 is initialised with the load
+# balancer as controlPlaneEndpoint and --upload-certs, cp2 and cp3 join as control planes one at a
+# time with --certificate-key (the commands of CLU-026 / CLU-027), node01 joins as a worker.
+# Calico as CNI. The admin kubeconfig is copied to iaac/.kubeconfig-vm (context cka-vm); ~/.kube/config
+# is never read or written.
+- name: First control plane
+  hosts: cp1
+  become: true
+  tasks:
+    - name: kubeadm configuration
+      ansible.builtin.template: {src: kubeadm-config.yaml.j2, dest: /root/kubeadm-config.yaml, mode: "0600"}
+
+    - name: kubeadm init
+      ansible.builtin.command: kubeadm init --config /root/kubeadm-config.yaml {{ '--upload-certs' if (ha | bool) else '' }}
+      args: {creates: /etc/kubernetes/admin.conf}
+
+    - name: Calico operator CRDs {{ calico_version }} (a separate manifest since Calico 3.30)
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        kubectl get crd installations.operator.tigera.io >/dev/null 2>&1 && exit 0
+        kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/operator-crds.yaml >/dev/null
+        echo created
+      register: tigera_crds
+      changed_when: "'created' in tigera_crds.stdout"
+
+    - name: Calico operator {{ calico_version }}
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        kubectl get ns tigera-operator >/dev/null 2>&1 && exit 0
+        kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/tigera-operator.yaml
+        echo created
+      register: tigera
+      changed_when: "'created' in tigera.stdout"
+
+    - name: Calico installation (pod CIDR = kubeadm podSubnet)
+      ansible.builtin.template: {src: calico-installation.yaml.j2, dest: /root/calico-installation.yaml, mode: "0644"}
+
+    - name: Apply the Calico installation once the operator's CRD exists
+      ansible.builtin.shell: |
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        kubectl wait --for=condition=established crd/installations.operator.tigera.io --timeout=180s >/dev/null &&
+        { kubectl get installation default >/dev/null 2>&1 || kubectl create -f /root/calico-installation.yaml; }
+      register: calico
+      changed_when: "'created' in calico.stdout"
+
+    - name: Worker join command (fresh token)
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: join
+      changed_when: false
+
+    - name: Certificate key for the other control planes (re-uploads the shared certificates)
+      ansible.builtin.shell: kubeadm init phase upload-certs --upload-certs | tail -1
+      register: cert_key
+      changed_when: false
+      when: ha | bool
+
+- name: Other control planes join, one at a time
+  hosts: control_plane:!cp1
+  become: true
+  serial: 1
+  tasks:
+    - name: kubeadm join --control-plane
+      ansible.builtin.command: >-
+        {{ hostvars['cp1'].join.stdout }} --control-plane --certificate-key {{ hostvars['cp1'].cert_key.stdout }}
+        --apiserver-advertise-address {{ ansible_host }}
+      args: {creates: /etc/kubernetes/admin.conf}
+
+- name: Workers join
+  hosts: workers
+  become: true
+  tasks:
+    - name: kubeadm join
+      ansible.builtin.command: "{{ hostvars['cp1'].join.stdout }}"
+      args: {creates: /etc/kubernetes/kubelet.conf}
+
+- name: kubectl on every control plane (the questions run it there, as root and as ubuntu)
+  hosts: control_plane
+  become: true
+  tasks:
+    - name: .kube directories
+      ansible.builtin.file: {path: "{{ item.home }}/.kube", state: directory, owner: "{{ item.user }}", mode: "0700"}
+      loop: [{home: /root, user: root}, {home: /home/ubuntu, user: ubuntu}]
+
+    - name: Admin kubeconfig for root and ubuntu
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: "{{ item.home }}/.kube/config"
+        remote_src: true
+        owner: "{{ item.user }}"
+        mode: "0600"
+      loop: [{home: /root, user: root}, {home: /home/ubuntu, user: ubuntu}]
+
+    - name: Admin kubeconfig to this machine (raw copy in the cache)
+      ansible.builtin.fetch:
+        src: /etc/kubernetes/admin.conf
+        dest: "{{ playbook_dir }}/.cache/admin.conf"
+        flat: true
+      when: inventory_hostname == 'cp1'
+
+- name: From this machine
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files: [group_vars/all.yml]
+  environment:
+    KUBECONFIG: "{{ kubeconfig_vm }}"
+    PATH: "{{ iaac_dir }}/.bin:{{ lookup('env', 'PATH') }}"
+  vars:
+    endpoint_ip: "{{ vm_net_prefix }}.{{ (vms | selectattr('name', 'equalto', api_endpoint.split(':')[0]) | first).ip }}"
+  tasks:
+    - name: iaac/.kubeconfig-vm with context {{ kube_context }}, server by IP (rebuilt when admin.conf changes)
+      ansible.builtin.shell: |
+        raw={{ playbook_dir }}/.cache/admin.conf
+        [ -f {{ kubeconfig_vm }} ] && [ {{ kubeconfig_vm }} -nt "$raw" ] && exit 0
+        cp "$raw" {{ kubeconfig_vm }}
+        kubectl config rename-context kubernetes-admin@cka-vm {{ kube_context }} >/dev/null
+        kubectl config set-cluster cka-vm --server=https://{{ endpoint_ip }}:6443 >/dev/null
+        echo renamed
+      register: ctx
+      changed_when: "'renamed' in ctx.stdout"
+
+    - name: Kubeconfig readable by me only
+      ansible.builtin.file: {path: "{{ kubeconfig_vm }}", mode: "0600"}
+
+    - name: Every node Ready
+      ansible.builtin.command: kubectl wait --for=condition=Ready nodes --all --timeout=600s
+      changed_when: false

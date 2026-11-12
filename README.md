@@ -53,7 +53,7 @@ but you can only answer the way the exam makes you work: **with your keyboard, u
 |:---:|:---:|
 | <img src="docs/media/command-step.svg" alt="Command step with options A-D, countdown bar and a half-typed answer"> | <img src="docs/media/edit-step.svg" alt="Edit step: pvc.yaml in an editor next to snippet options"> |
 | **Every mistake is explained** | **YOU WIN**: your results as pods, under fireworks |
-| <img src="docs/media/feedback.svg" alt="Feedback for a wrong answer: why it is wrong, correct answer, other traps"> | <img src="docs/media/you-win.svg" alt="YOU WIN screen with fireworks, rotating helm and kubectl get pods results"> |
+| <img src="docs/media/feedback.svg" alt="Feedback for a wrong answer: every option explained, the right one first"> | <img src="docs/media/you-win.svg" alt="YOU WIN screen with fireworks, rotating helm and kubectl get pods results"> |
 
 The images are animated SVGs made from real game sessions (`make readme-media` regenerates them).
 They have no sound. The game itself plays an original chiptune.
@@ -68,9 +68,11 @@ They have no sound. The game itself plays an original chiptune.
    snippet options. Type the right snippet **at the right place**, replacing the wrong lines. Leading
    spaces are shown as `·` so you can count the indentation.
 4. The countdown bar turns **yellow at 50 %** and **red at 25 %** of the time left (max 2 min per step).
-5. Every answer is explained: why your choice is wrong, the correct answer, the trap behind each
-   other option. A wrong step ends the question with a recap of the full solution and an exam tip.
-6. Scoring: 100 points per correct step + up to 50 speed bonus. **Copy/paste is blocked**: you type.
+5. Every answer is explained: after a miss, **all the options** are listed, the right one first
+   (✔, with its accepted forms and why it is right), then each trap (✘) with what it would really
+   do, your own choice marked. A wrong step ends the question with a recap of the full solution and an exam tip.
+6. Hard questions have the shape of a real exam task, 5 or 6 steps: prepare, change, wait, verify.
+7. Scoring: 100 points per correct step + up to 50 speed bonus. **Copy/paste is blocked**: you type.
 
 ### Like the real exam: 15 to 20 tasks
 
@@ -109,13 +111,14 @@ menu always shows the current ones.
 
 | Option | Values | Effect |
 |---|---|---|
-| MODE | **EXAM** / LEARN | LEARN shows the answers (see [Learn mode](#learn-mode)) |
+| MODE | **EXAM** / LEARN / RECALL | LEARN shows the answers (see [Learn mode](#learn-mode)); RECALL hides the options: type the answer from memory, they appear as a hint at half of the step's time |
+| HINTS | **OFF** / ON | ON shows a short hint under each step's task: where to look, what matters, never the answer |
 | AUTOCOMPLETE | **OFF** / ON | ON: Tab completes commands, resource names, namespaces and flags like kubectl's bash completion in the exam, from the words of the question's own commands (a unique match is completed, several are listed). Not in YAML files, as in the exam |
 | TIMER | **BY QUESTION** / GLOBAL | GLOBAL: one countdown for the whole session, like the CKA: **120 minutes** for the CKA EXAM, the sum of its steps' own times for a shorter round. When it runs out, the session ends and the questions not reached count as failed |
 | MUSIC | **ON** / OFF | the themes of the title, level and finale screens; sound effects stay |
 | SOUND | **MONO** / STEREO | STEREO: the same original tunes arranged wide, with a harmony, arpeggios bouncing between the speakers, echoes, and fireworks heard where they burst (rendered once, about 3 s, then cached) |
 
-Defaults in bold. The same settings exist as flags: `--learn`, `--autocomplete`, `--silent`,
+Defaults in bold. The same settings exist as flags: `--learn`, `--recall`, `--hints`, `--autocomplete`, `--silent`,
 `--timer global`, `--stereo`.
 
 **LEVEL** is on the title menu itself, just before HOW TO PLAY: select it and press LEFT/RIGHT (or
@@ -187,6 +190,8 @@ make help                                # all targets
 ./cka_trainer.py --count 5                   # 5 random questions
 ./cka_trainer.py --theme soft                # your terminal's colours instead of retro RGB
 ./cka_trainer.py --learn                     # learn mode (see above)
+./cka_trainer.py --recall                    # recall mode: options hidden until half time
+./cka_trainer.py --hints                     # a hint under each step's task
 ./cka_trainer.py --exam --timer global       # the real format: one 120-minute clock
 ./cka_trainer.py --level easy                # everyday tasks only (medium: + medium; hard: all)
 ./cka_trainer.py --stereo                    # stereo sound, more voices
@@ -311,6 +316,12 @@ Ubuntu 24.04 + GNOME Terminal" is useful.
 **Pull requests (merge requests) are welcome**: new questions (the database is meant to grow from
 these 120: keep the exam proportions, in batches of 20), fixes for other platforms, gameplay ideas. See [CONTRIBUTING.md](CONTRIBUTING.md)
 for the question format and the checks to run.
+
+## Credits
+
+RECALL mode, HINTS, the "All the options" answer page and the VM lab of `iaac/vm/` were ported from
+**CKS Megatrainer**, the CKS edition of this game, made by @fedir and also free software under the
+GNU General Public License v3.0.
 
 ## License
 

@@ -1,0 +1,19 @@
+<network>
+  <name>{{ vm_network }}</name>
+  <forward mode='nat'/>
+  <bridge name='virbr-{{ vm_network }}' stp='on' delay='0'/>
+  <domain name='{{ vm_network }}.local' localOnly='yes'/>
+  <dns>
+{% for vm in vms %}
+    <host ip='{{ vm_net_prefix }}.{{ vm.ip }}'><hostname>{{ vm.name }}</hostname></host>
+{% endfor %}
+  </dns>
+  <ip address='{{ vm_net_prefix }}.1' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='{{ vm_net_prefix }}.100' end='{{ vm_net_prefix }}.200'/>
+{% for vm in vms %}
+      <host mac='{{ vm.mac }}' name='{{ vm.name }}' ip='{{ vm_net_prefix }}.{{ vm.ip }}'/>
+{% endfor %}
+    </dhcp>
+  </ip>
+</network>

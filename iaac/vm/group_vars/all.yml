@@ -1,0 +1,47 @@
+# The CKA VM lab (iaac/vm). Everything pinned: a rebuild gives the same cluster. Checksums are
+# verified on download. Names are prefixed 'cka' so this lab never touches another lab on the host.
+libvirt_uri: qemu:///system
+vm_prefix: cka-            # libvirt domain and volume names: cka-cp1, cka-node01...
+vm_network: cka
+vm_net_prefix: 192.168.124
+vm_pool: cka
+vm_pool_path: /var/lib/libvirt/images/cka
+vm_base_volume: ubuntu-noble-base.img
+iaac_dir: "{{ playbook_dir }}/.."
+kubeconfig_vm: "{{ playbook_dir }}/../.kubeconfig-vm"
+kube_context: cka-vm
+
+# Ubuntu 24.04 LTS, like the exam's nodes; a dated build, not the moving 'release' link
+ubuntu_image_url: https://cloud-images.ubuntu.com/releases/noble/release-20261017/ubuntu-24.04-server-cloudimg-amd64.img
+ubuntu_image_sha256: 04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94
+
+# Two layouts (make vm-up / make vm-up HA=1). Host names are the ones the questions use.
+#   exam: cp1 + node01, like most CKA tasks.
+#   ha:   cp1, cp2, cp3 (stacked etcd) behind an HAProxy VM 'lb', plus node01 (CLU-026..030, TRB-036).
+ha: false
+vms_exam:
+  - {name: cp1, ip: 10, mac: "52:54:00:ca:00:10", vcpus: 2, memory_mib: 3072, disk_gib: 20, role: control_plane}
+  - {name: node01, ip: 21, mac: "52:54:00:ca:00:21", vcpus: 2, memory_mib: 3072, disk_gib: 20, role: worker}
+vms_ha:
+  - {name: lb, ip: 5, mac: "52:54:00:ca:00:05", vcpus: 1, memory_mib: 512, disk_gib: 8, role: lb}
+  - {name: cp1, ip: 10, mac: "52:54:00:ca:00:10", vcpus: 2, memory_mib: 2048, disk_gib: 20, role: control_plane}
+  - {name: cp2, ip: 11, mac: "52:54:00:ca:00:11", vcpus: 2, memory_mib: 2048, disk_gib: 20, role: control_plane}
+  - {name: cp3, ip: 12, mac: "52:54:00:ca:00:12", vcpus: 2, memory_mib: 2048, disk_gib: 20, role: control_plane}
+  - {name: node01, ip: 21, mac: "52:54:00:ca:00:21", vcpus: 2, memory_mib: 2048, disk_gib: 20, role: worker}
+vms: "{{ vms_ha if (ha | bool) else vms_exam }}"
+# every name either layout may have created (make vm-down removes them all)
+vms_all: "{{ vms_ha }}"
+api_endpoint: "{{ 'lb:6443' if (ha | bool) else 'cp1:6443' }}"
+
+# Kubernetes and its runtime: the combination proven on kind v0.33 (containerd 2.3.4 + runc 1.4.3)
+k8s_version: 1.37.0
+k8s_minor: "1.37"
+k8s_pkg_version: 1.37.0-1.1
+containerd_version: 2.3.4
+runc_version: 1.4.3
+crictl_version: v1.37.0
+cni_plugins_version: v1.10.0
+etcd_version: v3.7.0       # etcdctl + etcdutl on the control planes (CLU-008/009, CLU-028, TRB-036)
+pod_subnet: 10.244.0.0/16
+service_subnet: 10.96.0.0/12
+calico_version: v3.33.0

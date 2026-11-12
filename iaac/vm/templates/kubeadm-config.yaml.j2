@@ -1,0 +1,24 @@
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: {{ vm_net_prefix }}.{{ (vms | selectattr('name', 'equalto', inventory_hostname) | first).ip }}
+  bindPort: 6443
+nodeRegistration:
+  name: {{ inventory_hostname }}
+  criSocket: unix:///run/containerd/containerd.sock
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+clusterName: cka-vm
+kubernetesVersion: v{{ k8s_version }}
+controlPlaneEndpoint: "{{ api_endpoint }}"
+apiServer:
+  certSANs:   # this machine reaches the endpoint by IP (it cannot resolve the lab's names)
+  - "{{ vm_net_prefix }}.{{ (vms | selectattr('name', 'equalto', api_endpoint.split(':')[0]) | first).ip }}"
+networking:
+  podSubnet: {{ pod_subnet }}
+  serviceSubnet: {{ service_subnet }}
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd

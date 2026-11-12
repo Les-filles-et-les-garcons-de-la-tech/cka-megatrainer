@@ -70,7 +70,7 @@
 <text x="585" y="428.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="594" y="428.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="639" y="428.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">··</text>
-<text x="657" y="428.04" fill="#ffffff" textLength="135" lengthAdjust="spacingAndGlyphs">- ReadWriteMany</text>
+<text x="657" y="428.04" fill="#ffffff" textLength="135" lengthAdjust="spacingAndGlyphs">- ReadWriteOnce</text>
 <text x="891" y="428.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="0" y="446.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="36" y="446.04" fill="#ffffff" textLength="90" lengthAdjust="spacingAndGlyphs">resources:</text>
@@ -108,7 +108,7 @@
 <text x="585" y="536.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="594" y="536.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="639" y="536.04" fill="#7f7f7f" textLength="18" lengthAdjust="spacingAndGlyphs">··</text>
-<text x="657" y="536.04" fill="#ffffff" textLength="135" lengthAdjust="spacingAndGlyphs">- ReadWriteOnce</text>
+<text x="657" y="536.04" fill="#ffffff" textLength="135" lengthAdjust="spacingAndGlyphs">- ReadWriteMany</text>
 <text x="891" y="536.04" fill="#ffff00" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="0" y="554.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="585" y="554.04" fill="#00ffff" textLength="9" lengthAdjust="spacingAndGlyphs">│</text>

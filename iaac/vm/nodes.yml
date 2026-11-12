@@ -1,0 +1,205 @@
+# Every Kubernetes node: what kubeadm needs, like an exam node (Ubuntu 24.04, containerd, systemd kubelet).
+- name: Node prerequisites
+  hosts: nodes
+  become: true
+  gather_facts: false
+  handlers:
+    - name: Restart containerd
+      ansible.builtin.systemd_service: {name: containerd, state: restarted, daemon_reload: true}
+  tasks:
+    - name: Wait for the node
+      ansible.builtin.wait_for_connection: {timeout: 300}
+
+    - name: cloud-init has finished
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
+    - name: Every node knows the others by name (cp1..cp3, node01, lb)
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: "{{ vm_net_prefix }}.{{ item.ip }} {{ item.name }}"
+        regexp: "\\s{{ item.name }}$"
+      loop: "{{ vms }}"
+      loop_control: {label: "{{ item.name }}"}
+
+    - name: "OS packages (ufw, netcat, jq, strace: the questions use them)"
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        name: [apt-transport-https, ca-certificates, curl, gpg, jq, strace, netcat-openbsd, openssl,
+               conntrack, socat, ethtool, ufw, tar, zstd, xz-utils, nfs-common]
+
+    - name: Kernel modules for container networking
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/k8s.conf
+        content: "overlay\nbr_netfilter\n"
+        mode: "0644"
+
+    - name: Load them now
+      ansible.builtin.command: modprobe {{ item }}
+      loop: [overlay, br_netfilter]
+      changed_when: false
+
+    - name: Forwarding and bridged traffic through iptables
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-kubernetes.conf
+        content: |
+          net.bridge.bridge-nf-call-iptables  = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+          net.ipv4.ip_forward                 = 1
+        mode: "0644"
+      register: sysctl_file
+
+    - name: Apply sysctl
+      ansible.builtin.command: sysctl --system
+      when: sysctl_file.changed
+
+    # --- runtime: containerd + runc + CNI plugins + crictl, all checksum-verified ---------------
+    - name: runc {{ runc_version }}
+      ansible.builtin.get_url:
+        url: https://github.com/opencontainers/runc/releases/download/v{{ runc_version }}/runc.amd64
+        checksum: sha256:https://github.com/opencontainers/runc/releases/download/v{{ runc_version }}/runc.sha256sum
+        dest: /usr/local/sbin/runc
+        mode: "0755"
+
+    - name: containerd {{ containerd_version }} tarball
+      ansible.builtin.get_url:
+        url: https://github.com/containerd/containerd/releases/download/v{{ containerd_version }}/containerd-{{ containerd_version }}-linux-amd64.tar.gz
+        checksum: sha256:https://github.com/containerd/containerd/releases/download/v{{ containerd_version }}/containerd-{{ containerd_version }}-linux-amd64.tar.gz.sha256sum
+        dest: /root/containerd-{{ containerd_version }}.tar.gz
+        mode: "0644"
+      register: ctd_tar
+
+    - name: Installed binaries (an interrupted run may have downloaded without unpacking)
+      ansible.builtin.stat: {path: "{{ item }}"}
+      loop: [/usr/local/bin/containerd, /opt/cni/bin/bridge, /usr/local/bin/crictl]
+      register: bins
+
+    - name: Unpack containerd into /usr/local
+      ansible.builtin.unarchive: {src: "/root/containerd-{{ containerd_version }}.tar.gz", dest: /usr/local, remote_src: true}
+      when: ctd_tar.changed or not bins.results[0].stat.exists
+      notify: Restart containerd
+
+    - name: containerd configuration directories
+      ansible.builtin.file: {path: "{{ item }}", state: directory, mode: "0755"}
+      loop: [/etc/containerd, /etc/containerd/certs.d]
+
+    - name: containerd unit and config
+      ansible.builtin.template: {src: "{{ item.src }}", dest: "{{ item.dest }}", mode: "0644"}
+      loop:
+        - {src: containerd.service.j2, dest: /etc/systemd/system/containerd.service}
+        - {src: containerd-config.toml.j2, dest: /etc/containerd/config.toml}
+      notify: Restart containerd
+
+    - name: Registry hosts directory (addons.sh writes the in-cluster registry there)
+      ansible.builtin.file: {path: /etc/containerd/certs.d, state: directory, mode: "0755"}
+
+    - name: CNI plugins {{ cni_plugins_version }}
+      ansible.builtin.get_url:
+        url: https://github.com/containernetworking/plugins/releases/download/{{ cni_plugins_version }}/cni-plugins-linux-amd64-{{ cni_plugins_version }}.tgz
+        checksum: sha256:https://github.com/containernetworking/plugins/releases/download/{{ cni_plugins_version }}/cni-plugins-linux-amd64-{{ cni_plugins_version }}.tgz.sha256
+        dest: /root/cni-plugins-{{ cni_plugins_version }}.tgz
+        mode: "0644"
+      register: cni_tar
+
+    - name: CNI plugins directory
+      ansible.builtin.file: {path: /opt/cni/bin, state: directory, mode: "0755"}
+
+    - name: Unpack the CNI plugins into /opt/cni/bin
+      ansible.builtin.unarchive: {src: "/root/cni-plugins-{{ cni_plugins_version }}.tgz", dest: /opt/cni/bin, remote_src: true}
+      when: cni_tar.changed or not bins.results[1].stat.exists
+
+    - name: crictl {{ crictl_version }}
+      ansible.builtin.get_url:
+        url: https://github.com/kubernetes-sigs/cri-tools/releases/download/{{ crictl_version }}/crictl-{{ crictl_version }}-linux-amd64.tar.gz
+        checksum: sha256:https://github.com/kubernetes-sigs/cri-tools/releases/download/{{ crictl_version }}/crictl-{{ crictl_version }}-linux-amd64.tar.gz.sha256
+        dest: /root/crictl-{{ crictl_version }}.tar.gz
+        mode: "0644"
+      register: crictl_tar
+
+    - name: Unpack crictl
+      ansible.builtin.unarchive: {src: "/root/crictl-{{ crictl_version }}.tar.gz", dest: /usr/local/bin, remote_src: true}
+      when: crictl_tar.changed or not bins.results[2].stat.exists
+
+    - name: crictl talks to containerd
+      ansible.builtin.copy:
+        dest: /etc/crictl.yaml
+        content: "runtime-endpoint: unix:///run/containerd/containerd.sock\nimage-endpoint: unix:///run/containerd/containerd.sock\ntimeout: 10\n"
+        mode: "0644"
+
+    - name: containerd running
+      ansible.builtin.systemd_service: {name: containerd, state: started, enabled: true, daemon_reload: true}
+
+    # --- Kubernetes packages from pkgs.k8s.io (not on hold: the upgrade questions upgrade them) ---
+    - name: Kubernetes apt key
+      ansible.builtin.get_url:
+        url: https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor }}/deb/Release.key
+        dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+        mode: "0644"
+
+    - name: Kubernetes apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor }}/deb/ /"
+        filename: kubernetes
+
+    - name: kubelet, kubeadm, kubectl {{ k8s_pkg_version }}
+      ansible.builtin.apt:
+        name: ["kubelet={{ k8s_pkg_version }}", "kubeadm={{ k8s_pkg_version }}", "kubectl={{ k8s_pkg_version }}"]
+        allow_change_held_packages: true
+
+    - name: "kubelet enabled (it crash-loops until kubeadm init / join: normal)"
+      ansible.builtin.systemd_service: {name: kubelet, enabled: true}
+
+    # --- etcd's client tools on the control planes: the questions type them on the node ----------
+    - name: etcd {{ etcd_version }} tarball (etcdctl, etcdutl)
+      ansible.builtin.get_url:
+        url: https://github.com/etcd-io/etcd/releases/download/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz
+        checksum: sha256:https://github.com/etcd-io/etcd/releases/download/{{ etcd_version }}/SHA256SUMS
+        dest: /root/etcd-{{ etcd_version }}.tar.gz
+        mode: "0644"
+      when: inventory_hostname in groups['control_plane']
+
+    - name: etcdctl and etcdutl into /usr/local/bin
+      ansible.builtin.unarchive:
+        src: /root/etcd-{{ etcd_version }}.tar.gz
+        dest: /usr/local/bin
+        remote_src: true
+        extra_opts: [--strip-components=1, --wildcards, "*/etcdctl", "*/etcdutl"]
+        creates: /usr/local/bin/etcdutl
+      when: inventory_hostname in groups['control_plane']
+
+- name: Load balancer for the HA layout (HAProxy, TCP 6443 to every control plane)
+  hosts: lb
+  become: true
+  gather_facts: false
+  handlers:
+    - name: Restart haproxy
+      ansible.builtin.systemd_service: {name: haproxy, state: restarted}
+  tasks:
+    - name: Wait for the node
+      ansible.builtin.wait_for_connection: {timeout: 300}
+
+    - name: cloud-init has finished
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+
+    - name: Names of the control planes
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: "{{ vm_net_prefix }}.{{ item.ip }} {{ item.name }}"
+        regexp: "\\s{{ item.name }}$"
+      loop: "{{ vms }}"
+      loop_control: {label: "{{ item.name }}"}
+
+    - name: HAProxy
+      ansible.builtin.apt: {name: haproxy, update_cache: true, cache_valid_time: 3600}
+
+    - name: HAProxy configuration (the shape CLU-030 teaches)
+      ansible.builtin.template: {src: haproxy.cfg.j2, dest: /etc/haproxy/haproxy.cfg, mode: "0644"}
+      notify: Restart haproxy
+
+    - name: HAProxy running
+      ansible.builtin.systemd_service: {name: haproxy, state: started, enabled: true}
