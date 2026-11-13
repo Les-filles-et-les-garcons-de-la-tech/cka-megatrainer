@@ -55,6 +55,9 @@ STATE_DIR = Path(os.environ.get("CKA_MEGATRAINER_HOME") or Path.home() / ".cka_m
 REVIEW_FILE = "review.json"
 SCORES_FILE = "highscores.json"  # HI-SCORES: the top TOP_SCORES of each board (round x LEVEL)
 TOP_SCORES = 10
+LIVES = 3  # SURVIVAL: a question not solved costs one
+CONTINUE_SECONDS = 10
+RUN = {"lives": None}  # SURVIVAL's lives while it runs (None otherwise): drawn as red hearts
 TICK_GLOBAL = 60  # GLOBAL timer: the countdown ticks in its last minute (its red zone is 30 min long)
 
 
@@ -345,8 +348,8 @@ def correct_next(step):
 
 def feedback_at_end():
     """FEEDBACK AT THE END, like the exam: nothing tells a step was right until the last screen.
-    LEARN mode always explains each step."""
-    return SETTINGS["feedback"] == "end" and not SETTINGS["learn"]
+    LEARN mode and SURVIVAL (you must know when a life goes) always explain each step."""
+    return SETTINGS["feedback"] == "end" and not SETTINGS["learn"] and RUN["lives"] is None
 
 
 def points_for(ok, elapsed, limit):
@@ -749,6 +752,9 @@ def draw_step(stdscr, title, q, step, options, ed, remaining, limit, warn=False,
     h, w = stdscr.getmaxyx()
     stdscr.erase()
     header(stdscr, title)
+    if RUN["lives"] is not None:  # SURVIVAL: the lives, red hearts at the end of the title bar
+        lives = " " + " ".join(retro.hearts(RUN["lives"], LIVES)) + " "  # spaced: ♥ ♥ ♡
+        put(stdscr, 0, w - len(lives) - 1, lives, retro.C.get("heartbar", A["red"] | A["bold"]))
     countdown(stdscr, 1, remaining, limit)
 
     # rows: header, bar, blank, body, blank, input area (a command needs 3 rows, an edit ~8), footer
@@ -1021,7 +1027,7 @@ def ask_question(stdscr, q, n, total, score, domains, sound, clock=None):
         (f"{plen} step{'s' * (plen > 1)}  ·  " + (f"{clock_text(clock['deadline'] - time.monotonic())} left "
                                                    f"on the global clock" if clock else f"{seconds}s on the clock"),
          "white"),
-    ], sound)
+    ], sound, lives=None if RUN["lives"] is None else (RUN["lives"], LIVES))
     deferred = feedback_at_end()
     answers = []  # FEEDBACK AT THE END: each step's answer page, shown after the finale
     while sid:
@@ -1029,7 +1035,7 @@ def ask_question(stdscr, q, n, total, score, domains, sound, clock=None):
         stepno += 1
         options = list(step.get("options", []))
         random.shuffle(options)
-        title = (f" {'CKA LEARN' if SETTINGS['learn'] else 'CKA MEGATRAINER'}  Q{n}/{total}  {q['id']}  {domains[q['domain']]['name']}"
+        title = (f" {'CKA LEARN' if SETTINGS['learn'] else 'CKA MEGATRAINER'}  Q{n}{'/' + str(total) if total else ''}  {q['id']}  {domains[q['domain']]['name']}"
                  f"  ·  step {stepno}/{plen}" + ("" if deferred else f"  ·  score {score + earned}"))
         text, elapsed, how, pastes = run_step(stdscr, title, q, step, options, clock, sound)
         res = judge(step, text, how)
@@ -1170,6 +1176,8 @@ def score_board(choice, domains, args):
         return None
     if choice == "exam":
         name = "CKA EXAM"
+    elif choice == "survival":
+        name = "SURVIVAL"
     elif choice in domains and not args.count:
         name = short_name(domains[choice])
     elif choice == "" and not args.count:
@@ -1205,6 +1213,53 @@ def add_score(data, board, entry):
     return rank
 
 
+def survival(stdscr, domains, questions, args, sound):
+    """SURVIVAL: endless random questions, LIVES lives; a question not solved costs one. With no life
+    left, the credit's score goes to the HI-SCORES, then CONTINUE? 10..0: INSERT COIN (Enter) gives
+    the lives back and the score starts again from 0. Returns every question's result."""
+    pool = at_level(questions)
+    board = score_board("survival", domains, args)
+    results, credit, deck, credits = [], [], [], 1
+
+    def end_credit():
+        if board and credit:
+            hi_scores(stdscr, board, finale_info(credit, pool, domains), sound)
+
+    RUN["lives"] = LIVES
+    try:
+        n = 0
+        while pool:
+            if not deck:  # every question once, in a new random order each time round
+                deck = random.sample(pool, len(pool))
+            q = deck.pop()
+            n += 1
+            r = ask_question(stdscr, q, n, None, sum(x["points"] for x in credit), domains, sound)
+            results.append(r)
+            credit.append(r)
+            if r["quit"]:
+                end_credit()
+                break
+            if r["solved"]:
+                continue
+            RUN["lives"] -= 1
+            retro.life_lost(stdscr, RUN["lives"], LIVES, sound)
+            if RUN["lives"] == 0:
+                end_credit()
+                if not retro.continue_screen(stdscr, sound, read_key, CONTINUE_SECONDS):
+                    break
+                credits += 1
+                credit = []
+                RUN["lives"] = LIVES
+        if results:
+            save_review(update_review(load_review(), results, SETTINGS["learn"]))
+            info = finale_info(results, pool, domains)
+            info["won"] = False  # survival always ends the arcade way
+            retro.finale(stdscr, info, sound)
+    finally:
+        RUN["lives"] = None
+    return results
+
+
 def hi_scores(stdscr, board, info, sound):
     """After the finale: the initials when the score makes the table, then the table."""
     data = load_scores()
@@ -1238,6 +1293,8 @@ def rules_lines():
         ("Train like the exam: read the task, choose the right command and TYPE it in full.", n),
         ("CKA EXAM: 15-20 random questions in the exam's domain proportions. A domain line", n),
         ("plays a short round: its share of a 20-question exam (e.g. STORAGE 2/20 = 2).", n),
+        ("SURVIVAL: endless random questions and 3 lives (red hearts); a question not solved", n),
+        ("costs one. Out of lives: CONTINUE? 10..0, Enter = INSERT COIN (score from 0).", n),
         ("REVIEW MISSED (once you missed one): replays only the questions you got wrong, in", n),
         ("any run, at any LEVEL. Solve one and it leaves the list (also: --review).", n), ("", 0),
         ("LEVEL (title menu, LEFT/RIGHT): EASY everyday tasks, MEDIUM + medium, HARD all.", n),
@@ -1270,8 +1327,9 @@ def rules_lines():
         ("A wrong step ends the question: read the explanation and the recap, then try again!", n),
         ("", 0),
         ("HI-SCORES", b),
-        ("  The CKA EXAM, each domain round and ALL QUESTIONS keep a top 10 per LEVEL: make it", n),
-        ("  and you enter your initials. Not in LEARN mode (also: --scores lists them).", n),
+        ("  The CKA EXAM, each domain round, ALL QUESTIONS and SURVIVAL (per credit) keep a", n),
+        ("  top 10 per LEVEL: make it and you enter your initials. Not in LEARN mode", n),
+        ("  (also: --scores lists them).", n),
         ("", 0),
         ("Credits", b),
         ("  RECALL, HINTS and the all-options answer page come from CKS Megatrainer,", n),
@@ -1399,6 +1457,7 @@ def menu(stdscr, domains, questions, sound):
                   for d, v in domains.items() if counts[d]]
         missed = review_questions(questions)
         items.append(("", "ALL QUESTIONS", f"{len(pool)}Q"))
+        items.append(("survival", "SURVIVAL", f"{LIVES} LIVES"))
         if missed:
             items.append(("review", "REVIEW MISSED", f"{len(missed)}Q"))
         return items + [
@@ -1493,11 +1552,13 @@ def play(stdscr, domains, questions, args):
 
 
 def session(stdscr, domains, questions, args, sound):
-    choice = "exam" if args.exam else "review" if args.review else None
-    if not args.id and args.domain is None and not args.exam and not args.review:
+    choice = "exam" if args.exam else "review" if args.review else "survival" if args.survival else None
+    if not args.id and args.domain is None and choice is None:
         choice = menu(stdscr, domains, questions, sound)
         if choice is None:
             return []
+    if choice == "survival":
+        return survival(stdscr, domains, questions, args, sound)
     if choice == "review":  # what you missed, whatever its level
         questions = review_questions(questions)
     elif not args.id:  # explicit --id plays exactly what was asked
@@ -1548,6 +1609,8 @@ def main(argv=None):
     ap.add_argument("--review", action="store_true",
                     help="replay only the questions you missed (kept in ~/.cka_megatrainer/review.json "
                          "until solved; CKA_MEGATRAINER_HOME moves it)")
+    ap.add_argument("--survival", action="store_true",
+                    help=f"SURVIVAL: endless random questions, {LIVES} lives, CONTINUE? when they are gone")
     ap.add_argument("--count", type=int, help="maximum number of questions (with --exam: the exam size)")
     ap.add_argument("--no-shuffle", dest="shuffle", action="store_false", help="keep database order")
     ap.add_argument("--allow-paste", action="store_true", help="do not block pasted input")

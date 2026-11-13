@@ -95,6 +95,11 @@ Each domain entry plays a **short round on that domain**: its share of a 20-ques
 at random (e.g. STORAGE: 2 questions, TROUBLESHOOTING: 6). **ALL QUESTIONS** plays the whole
 library; `--domain NAME` on the command line plays all the questions of one domain.
 
+**SURVIVAL** plays random questions without end, with **3 lives** shown as red hearts: a question you
+do not solve costs one. With no life left, your score goes to the HI-SCORES, then **CONTINUE? 10..0**:
+Enter (INSERT COIN) gives you 3 new lives and the score starts again from 0; Q gives up. SURVIVAL
+always explains each step (FEEDBACK AT THE END does not apply) and uses the per-step countdown.
+
 **REVIEW MISSED** appears once you have missed a question: it replays only the questions you got wrong,
 from any run and at any LEVEL. A question leaves the list when you solve it (not in LEARN mode, where
 the answer was shown). The list is kept in `~/.cka_megatrainer/review.json` (set `CKA_MEGATRAINER_HOME`
@@ -197,6 +202,7 @@ make help                                # all targets
 ./cka_trainer.py --domain troubleshooting    # practise one domain (all its questions)
 ./cka_trainer.py --id NET-001 --id TRB-003   # specific questions
 ./cka_trainer.py --review                    # only the questions you missed so far
+./cka_trainer.py --survival                  # endless questions, 3 lives, CONTINUE?
 ./cka_trainer.py --count 5                   # 5 random questions
 ./cka_trainer.py --theme soft                # your terminal's colours instead of retro RGB
 ./cka_trainer.py --learn                     # learn mode (see above)
@@ -265,7 +271,8 @@ of `make start-exam` needs the repository and handles its own setup.
 ## The 80s experience
 
 - **Title screen**: rotating pixel-art Kubernetes helm, rainbow pixel-font logo, starfield, flashing menu.
-- **HI-SCORES**: the CKA EXAM, each domain round and ALL QUESTIONS keep a top 10 per LEVEL. Make it and
+- **HI-SCORES**: the CKA EXAM, each domain round, ALL QUESTIONS and SURVIVAL (one entry per credit)
+  keep a top 10 per LEVEL. Make it and
   you enter three initials, arcade style (type them, or UP/DOWN through the letters), then the table
   shows your row in rainbow colours. Each row says how the score was made (EXAM or RECALL, +HINTS,
   +AUTO for autocomplete). LEARN mode, REVIEW MISSED, `--id` and shortened rounds (`--count`) do not

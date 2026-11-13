@@ -71,11 +71,14 @@ FONT = {ch: rows.split(",") for ch, rows in {
     "%": "11001,11010,00010,00100,01000,01011,10011",
     "-": "00000,00000,00000,11111,00000,00000,00000",
     ".": "00000,00000,00000,00000,00000,00000,00100",
+    "?": "01110,10001,00001,00010,00100,00000,00100",
+    "♥": "01010,11111,11111,11111,01110,00100,00000",  # SURVIVAL: a life
+    "♡": "01010,10101,10001,10001,01010,00100,00000",  # a life lost
 }.items()}
 
 
 def glyph(ch):
-    return FONT.get(ch.upper(), FONT[" "])
+    return FONT.get(ch, FONT.get(ch.upper(), FONT[" "]))
 
 
 def big(text):
@@ -207,6 +210,8 @@ def init_colors(win=None):
     C["helm"] = curses.color_pair(30) | curses.A_BOLD
     curses.init_pair(31, pal["helm"], bg)
     C["helmedge"] = curses.color_pair(31)
+    curses.init_pair(32, pal["red"], pal["white"])  # SURVIVAL hearts on the white title bar
+    C["heartbar"] = curses.color_pair(32) | curses.A_BOLD
     if win is not None and bg != -1:
         win.bkgd(" ", C["white"])  # plain text becomes white on black too
 
@@ -334,7 +339,7 @@ def draw_title(win, items, sel, t, status, flash=None, cycling=()):
         sub = "KUBERNETES v1.37 · CKA"
     put(win, y, (w - len(sub)) // 2, sub, C["cyan"] | curses.A_BOLD)
 
-    y += 2
+    y += 2 if total <= h else 1  # a long menu at 20 rows: no blank line under the subtitle
     x = (w - MENU_W) // 2
     for i, (_, label, right) in enumerate(items):
         if i == sel and flash is not None:
@@ -515,8 +520,14 @@ def get_ready(win, stage, sound):
     curses.flushinp()
 
 
-def level_screen(win, number, total, lines, sound, seconds=2.0):
-    """'LEVEL n' interstitial with the level jingle. Enter / space skips it."""
+def hearts(lives, of):
+    """'♥♥♡': the lives left, then the lost ones."""
+    return "♥" * lives + "♡" * (of - lives)
+
+
+def level_screen(win, number, total, lines, sound, seconds=2.0, lives=None):
+    """'LEVEL n' interstitial with the level jingle. Enter / space skips it.
+    total None: SURVIVAL (endless). lives: (left, of), drawn as red pixel hearts."""
     init_colors()
     curses.curs_set(0)
     sound.wait_ready(1.5)  # first launch after a sound change: they are still rendering
@@ -535,12 +546,19 @@ def level_screen(win, number, total, lines, sound, seconds=2.0):
             put(win, y + r, x - 1, " " * (width(word) + 2))
         sprite(win, y, x, word, lambda r, c: C[RAINBOW[(c // 4 + int(t * 6)) % len(RAINBOW)]] | curses.A_BOLD)
         y += len(word) + 1
-        put(win, y, (w - 9) // 2, f"{number:>2} OF {total:<2}", C["white"] | curses.A_DIM)
+        of = f"{number:>2} OF {total:<2}" if total else "SURVIVAL"
+        put(win, y, (w - len(of)) // 2, of, C["white"] | curses.A_DIM)
         for i, (text, color) in enumerate(lines):
             text = text[:w - 2]
             put(win, y + 2 + i, (w - len(text)) // 2, text, C[color] | curses.A_BOLD)
         if int(t * 4) % 2 == 0:
             put(win, y + 3 + len(lines), (w - 13) // 2, "GET READY ...", C["magenta"] | curses.A_BOLD)
+        if lives and y + 5 + len(lines) + 4 < h:
+            row = half(hearts(*lives))
+            hx = (w - width(row)) // 2
+            for r in range(len(row)):
+                put(win, y + 5 + len(lines) + r, hx - 1, " " * (width(row) + 2))
+            sprite(win, y + 5 + len(lines), hx, row, lambda r, c: C["red"] | curses.A_BOLD)
         win.refresh()
         win.timeout(FRAME_MS)
         try:
@@ -550,6 +568,106 @@ def level_screen(win, number, total, lines, sound, seconds=2.0):
         if key in ("\n", "\r", " ", curses.KEY_ENTER) and t > 0.3:
             break
     curses.flushinp()
+
+
+# --------------------------------------------------------------------------
+# SURVIVAL: a life lost, CONTINUE?
+# --------------------------------------------------------------------------
+
+def _center_sprite(win, y, rows, attr_at):
+    w = win.getmaxyx()[1]
+    x = (w - width(rows)) // 2
+    for r in range(len(rows)):  # no stars inside
+        put(win, y + r, x - 1, " " * (width(rows) + 2))
+    sprite(win, y, x, rows, attr_at)
+    return x
+
+
+def life_lost(win, left, of, sound, seconds=2.0):
+    """The hearts, the lost one blinking out. Enter / space skips."""
+    init_colors()
+    curses.curs_set(0)
+    curses.flushinp()
+    t0 = time.monotonic()
+    cell = width(big("♥")) + 2
+    while (t := time.monotonic() - t0) < seconds:
+        h, w = win.getmaxyx()
+        win.erase()
+        draw_stars(win, t + 20)
+        gone = int(t * 5) % 2 == 0 and t < seconds * 0.7  # the lost heart blinks, then stays empty
+        row = big(hearts(left + 1, of) if gone else hearts(left, of))
+        if w < width(row) + 4 or h < 16:
+            row = half(hearts(left + 1, of) if gone else hearts(left, of))
+            cell = width(half("♥")) + 1
+        y = max(0, (h - len(row) - 6) // 2)
+        _center_sprite(win, y, row, lambda r, c: C["red"] | curses.A_BOLD)
+        msg = "LAST LIFE!" if left == 1 else "GAME OVER" if left == 0 else "LIFE LOST"
+        put(win, y + len(row) + 2, (w - len(msg)) // 2, msg, (C["yellow"] if left else C["red"]) | curses.A_BOLD)
+        line = f"{left} OF {of} LEFT"
+        put(win, y + len(row) + 3, (w - len(line)) // 2, line, C["white"] | curses.A_DIM)
+        win.refresh()
+        win.timeout(FRAME_MS)
+        try:
+            key = win.get_wch()
+        except curses.error:
+            continue
+        if key in ("\n", "\r", " ", curses.KEY_ENTER) and t > 0.4:
+            break
+    curses.flushinp()
+
+
+def continue_screen(win, sound, read_key, seconds=10, note="THE SCORE STARTS AGAIN FROM 0"):
+    """CONTINUE? 10..0. Enter (INSERT COIN) continues: True. Q / Esc or 0: False.
+    Any other key speeds the countdown up, like the arcade."""
+    init_colors()
+    curses.curs_set(0)
+    curses.flushinp()
+    sound.start_music("gameover")
+    end = time.monotonic() + seconds + 1  # each number shows a full second: 10 first, 0 last
+    t0 = time.monotonic()
+    last = None
+    try:
+        while True:
+            now = time.monotonic()
+            t, left = now - t0, end - now
+            sound.tick()
+            if left <= 0:
+                return False
+            sec = min(seconds, int(left))
+            if sec != last:
+                last = sec
+                sound.play("tick_hi" if sec <= 3 else "tick")
+            h, w = win.getmaxyx()
+            win.erase()
+            draw_stars(win, t + 30)
+            word = half("CONTINUE?")
+            y = max(0, (h - 4 - 2 - 7 - 6) // 2)
+            _center_sprite(win, y, word, lambda r, c: C[RAINBOW[(c // 4 + int(t * 6)) % len(RAINBOW)]] | curses.A_BOLD)
+            y += len(word) + 2
+            digits = big(str(sec))
+            _center_sprite(win, y, digits, lambda r, c: (C["red"] if sec <= 3 else C["yellow"]) | curses.A_BOLD)
+            y += len(digits) + 2
+            if int(t * 3) % 2 == 0:
+                coin = "INSERT COIN: PRESS ENTER"
+                put(win, y, (w - len(coin)) // 2, coin, C["magenta"] | curses.A_BOLD)
+            put(win, y + 1, (w - len(note)) // 2, note, C["white"] | curses.A_DIM)
+            footer = "ENTER CONTINUE  Q GIVE UP"
+            put(win, h - 1, (w - len(footer)) // 2, footer, C["white"] | curses.A_DIM)
+            win.refresh()
+            win.timeout(FRAME_MS)
+            try:
+                key = read_key(win)
+            except curses.error:
+                continue
+            if key in ("\n", "\r", curses.KEY_ENTER):
+                sound.play("select")
+                return True
+            if key in ("q", "Q", "\x1b"):
+                return False
+            if key is not None and key != curses.KEY_RESIZE:
+                end -= 1  # mashing a key runs the clock down
+    finally:
+        sound.stop_music()
 
 
 # --------------------------------------------------------------------------

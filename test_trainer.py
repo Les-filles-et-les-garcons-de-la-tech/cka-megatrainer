@@ -909,5 +909,81 @@ class TypoDiff(unittest.TestCase):
         self.assertTrue(all(len(r[0]) <= t.MIN_W - 3 for r in rows))
         self.assertEqual(sum(r[0].startswith("    yours  ") for r in rows), 2)  # two aligned chunks
 
+
+class Survival(unittest.TestCase):
+    """SURVIVAL: lives, CONTINUE?, one HI-SCORES entry per credit."""
+    def setUp(self):
+        import argparse
+        import tempfile
+        saved = dict(t.SETTINGS)
+        self.addCleanup(lambda: (t.SETTINGS.clear(), t.SETTINGS.update(saved)))
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.addCleanup(setattr, t, "STATE_DIR", t.STATE_DIR)
+        t.STATE_DIR = Path(tmp.name)
+        self.args = argparse.Namespace(id=None, review=False, count=None, survival=True)
+        self.events = []
+        self.coins = []  # answers of the CONTINUE? screens, in order
+
+        def fake(name, value=None):
+            def f(*a, **kw):
+                self.events.append((name, t.RUN["lives"]))
+                return value() if callable(value) else value
+            return f
+        for mod, name, value in ((t.retro, "life_lost", None), (t.retro, "finale", None),
+                                 (t.retro, "continue_screen", lambda: self.coins.pop(0))):
+            self.addCleanup(setattr, mod, name, getattr(mod, name))
+            setattr(mod, name, fake(name, value))
+        self.addCleanup(setattr, t, "hi_scores", t.hi_scores)
+        t.hi_scores = lambda scr, board, info, snd: self.events.append(("hi_scores", info["score"]))
+
+    def run_with(self, outcomes):
+        """outcomes: 'S' solved (100 pts), 'M' missed (0), 'Q' quit, one per question asked."""
+        it = iter(outcomes)
+
+        def ask(stdscr, q, n, total, score, domains, sound, clock=None):
+            self.assertIsNone(total)  # endless
+            o = next(it)
+            return {"id": q["id"], "domain": q["domain"], "points": 100 if o == "S" else 0,
+                    "solved": o == "S", "quit": o == "Q",
+                    "steps": [{"ok": o == "S", "time": 1.0}]}
+        self.addCleanup(setattr, t, "ask_question", t.ask_question)
+        t.ask_question = ask
+        return t.survival(None, FX_DOMAINS, FX_QUESTIONS, self.args, None)
+
+    def test_three_misses_then_give_up(self):
+        self.coins = [False]
+        results = self.run_with("SMSMM")
+        self.assertEqual(len(results), 5)
+        self.assertEqual([e for e in self.events if e[0] == "life_lost"],
+                         [("life_lost", 2), ("life_lost", 1), ("life_lost", 0)])
+        self.assertEqual([e for e in self.events if e[0] != "life_lost"],
+                         [("hi_scores", 200), ("continue_screen", 0), ("finale", 0)])
+        self.assertIsNone(t.RUN["lives"])  # back to normal play
+
+    def test_insert_coin_gives_the_lives_back_and_a_new_credit(self):
+        self.coins = [True, False]
+        self.run_with("SMMM" + "SSMMM")
+        scores = [e[1] for e in self.events if e[0] == "hi_scores"]
+        self.assertEqual(scores, [100, 200])  # each credit scores from 0
+        self.assertEqual([e for e in self.events if e[0] == "continue_screen"], [("continue_screen", 0)] * 2)
+
+    def test_quit_still_records_the_credit(self):
+        self.run_with("SSQ")
+        self.assertEqual([e[0] for e in self.events], ["hi_scores", "finale"])
+
+    def test_survival_explains_each_step_and_has_its_board(self):
+        t.SETTINGS.update(feedback="end", learn=False, level="easy")
+        self.assertTrue(t.feedback_at_end())
+        t.RUN["lives"] = 2
+        self.addCleanup(t.RUN.update, lives=None)
+        self.assertFalse(t.feedback_at_end())
+        self.assertEqual(t.score_board("survival", FX_DOMAINS, self.args), "SURVIVAL · EASY")
+
+    def test_hearts(self):
+        self.assertEqual(t.retro.hearts(1, 3), "♥♡♡")
+        self.assertNotEqual(t.retro.glyph("♥"), t.retro.glyph(" "))
+        self.assertNotEqual(t.retro.glyph("♡"), t.retro.glyph("♥"))
+
 if __name__ == "__main__":
     unittest.main()
