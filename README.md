@@ -67,7 +67,8 @@ They have no sound. The game itself plays an original chiptune.
 3. **Edit step**: a file opens in an editor (e.g. the output of `--dry-run=client -o yaml`) next to
    snippet options. Type the right snippet **at the right place**, replacing the wrong lines. Leading
    spaces are shown as `·` so you can count the indentation.
-4. The countdown bar turns **yellow at 50 %** and **red at 25 %** of the time left (max 2 min per step).
+4. The countdown bar turns **yellow at 50 %** and **red at 25 %** of the time left (max 2 min per step);
+   in the red it ticks each second, higher for the last five (GLOBAL timer: in its last minute).
 5. Every answer is explained: after a miss, **all the options** are listed, the right one first
    (✔, with its accepted forms and why it is right), then each trap (✘) with what it would really
    do, your own choice marked. A wrong step ends the question with a recap of the full solution and an exam tip.
@@ -207,6 +208,7 @@ make help                                # all targets
 ./cka_trainer.py --silent                    # no sound
 ./cka_trainer.py --allow-paste               # practise without the paste blocker
 ./cka_trainer.py --list                      # list question ids
+./cka_trainer.py --scores                    # the high-score tables
 ./cka_trainer.py --validate                  # check questions.json
 ```
 
@@ -261,8 +263,14 @@ of `make start-exam` needs the repository and handles its own setup.
 ## The 80s experience
 
 - **Title screen**: rotating pixel-art Kubernetes helm, rainbow pixel-font logo, starfield, flashing menu.
+- **HI-SCORES**: the CKA EXAM, each domain round and ALL QUESTIONS keep a top 10 per LEVEL. Make it and
+  you enter three initials, arcade style (type them, or UP/DOWN through the letters), then the table
+  shows your row in rainbow colours. Each row says how the score was made (EXAM or RECALL, +HINTS,
+  +AUTO for autocomplete). LEARN mode, REVIEW MISSED, `--id` and shortened rounds (`--count`) do not
+  enter it. Kept in `~/.cka_megatrainer/highscores.json`; `--scores` prints every table.
 - **Sound**: an original NES-style chiptune (square-wave lead, triangle bass, noise drums), a jingle
-  at each `LEVEL n` screen, win / lose sounds for every step, fanfares at the end of each question,
+  at each `LEVEL n` screen, a clock tick in the red zone of the countdown, win / lose sounds for
+  every step, fanfares at the end of each question,
   firework booms. Everything is synthesised by the app (cached in `~/.cache/cka-megatrainer/`)
   and played with `pw-play`, `paplay`, `aplay` or `afplay`, whichever exists. Without a player
   the game is silent.

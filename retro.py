@@ -754,6 +754,145 @@ def _pods_table(win, y, x, w, pods, t):
         put(win, y + 2 + i, x + 50, f"{restarts:<10}{age}", C["white"])
 
 
+# --------------------------------------------------------------------------
+# High scores: initials entry and the table
+# --------------------------------------------------------------------------
+
+INITIALS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
+ORDINAL = {1: "1ST", 2: "2ND", 3: "3RD"}
+
+
+def ordinal(n):
+    return ORDINAL.get(n, f"{n}TH")
+
+
+def _banner(win, y, text, t, w):
+    word = half(text)
+    x = (w - width(word)) // 2
+    for r in range(len(word)):  # no stars inside the letters
+        put(win, y + r, x - 1, " " * (width(word) + 2))
+    sprite(win, y, x, word, lambda r, c: C[RAINBOW[(c // 4 + int(t * 6)) % len(RAINBOW)]] | curses.A_BOLD)
+    return y + len(word)
+
+
+def draw_initials(win, letters, pos, lines, t, done=False):
+    h, w = win.getmaxyx()
+    win.erase()
+    draw_stars(win, t)
+    y = _banner(win, 1, "HI-SCORE!", t, w) + 1
+    for text, color in lines:
+        x = (w - len(text)) // 2
+        put(win, y, max(0, x - 1), " " * (len(text) + 2))  # no stars touching the words
+        put(win, y, x, text[:w], C[color] | curses.A_BOLD)
+        y += 1
+    y += 1
+    word = big("".join(letters))
+    x = (w - width(word)) // 2
+    for r in range(len(word)):
+        put(win, y + r, x - 1, " " * (width(word) + 2))
+    blink = int(t * 4) % 2 == 0
+    cell = width(big("A")) + 2  # one letter + the gap after it
+    sprite(win, y, x, word, lambda r, c: (C["green"] if done else C["yellow"] if c // cell == pos and blink
+                                          else C["white"]) | curses.A_BOLD)
+    if not done:
+        put(win, y + len(word), x + pos * cell, "▀" * width(big("A")), C["magenta"] | curses.A_BOLD)
+    footer = "TYPE  UP DOWN LETTER  LEFT RIGHT MOVE  ENTER OK"
+    put(win, h - 1, max(0, (w - len(footer)) // 2), footer[:w], C["white"] | curses.A_DIM)
+    win.refresh()
+
+
+def enter_initials(win, sound, read_key, default="AAA", lines=()):
+    """Arcade initials: type letters (or UP/DOWN through A-Z, 0-9, space), LEFT/RIGHT or Backspace
+    to move, Enter (or Esc) to confirm. lines: [(text, colour)] above the letters. Returns 3 chars."""
+    init_colors()
+    curses.curs_set(0)
+    letters = list((default.upper() + "AAA")[:3])
+    letters = [ch if ch in INITIALS else "A" for ch in letters]
+    pos, t0 = 0, time.monotonic()
+    curses.flushinp()
+    while True:
+        win.timeout(FRAME_MS)
+        draw_initials(win, letters, pos, lines, time.monotonic() - t0)
+        try:
+            key = read_key(win)
+        except curses.error:
+            continue
+        if key in ("\n", "\r", curses.KEY_ENTER, "\x1b"):
+            break
+        if key in (curses.KEY_UP, curses.KEY_DOWN):
+            i = INITIALS.index(letters[pos])
+            letters[pos] = INITIALS[(i + (1 if key == curses.KEY_DOWN else -1)) % len(INITIALS)]
+            sound.play("move")
+        elif key in (curses.KEY_LEFT, curses.KEY_BACKSPACE, "\x7f", "\b"):
+            pos = max(0, pos - 1)
+            sound.play("move")
+        elif key == curses.KEY_RIGHT:
+            pos = min(2, pos + 1)
+            sound.play("move")
+        elif isinstance(key, str) and len(key) == 1 and key.upper() in INITIALS:
+            letters[pos] = key.upper()
+            sound.play("move")
+            if pos == 2:  # the third letter is in: done, like the arcade
+                break
+            pos += 1
+    sound.play("select")
+    for i in range(8):  # the "saved" flash
+        draw_initials(win, letters, pos, lines, i * 0.25, done=i % 2 == 0)
+        curses.napms(70)
+    curses.flushinp()
+    return "".join(letters)
+
+
+def score_rows(table):
+    """The lines of a high-score table (also used for the terminal)."""
+    rows = [f"{'RANK':<4}  {'NAME':<4} {'SCORE':>6}  {'EXAM':>4}  {'MODE':<17} {'DATE':<10}"]
+    for i, e in enumerate(table, 1):
+        rows.append(f"{ordinal(i):<4}  {e['name']:<4} {e['score']:>6}  {e['percent']:>3}%  "
+                    f"{e.get('mode', ''):<17} {e.get('date', ''):<10}")
+    return rows
+
+
+def high_scores(win, sound, read_key, board, table, highlight=None):
+    """The board's top scores; the new entry shines. Enter / q / Esc leaves."""
+    init_colors()
+    curses.curs_set(0)
+    rows = score_rows(table)
+    t0 = time.monotonic()
+    curses.flushinp()
+    while True:
+        t = time.monotonic() - t0
+        h, w = win.getmaxyx()
+        win.erase()
+        draw_stars(win, t)
+        y = _banner(win, 1, "HI-SCORES", t, w) + 1
+        put(win, y, max(0, (w - len(board)) // 2 - 1), " " * (len(board) + 2))
+        put(win, y, (w - len(board)) // 2, board[:w], C["cyan"] | curses.A_BOLD)
+        y += 2
+        x = max(0, (w - len(rows[0])) // 2)
+        for i, line in enumerate(rows):
+            put(win, y, x, " " * len(line))  # no stars behind the table
+            if i == 0:
+                attr = C["white"] | curses.A_DIM
+            elif i - 1 == highlight:
+                attr = C[RAINBOW[int(t * 8) % len(RAINBOW)]] | curses.A_BOLD
+            else:
+                attr = C["yellow" if i == 1 else "white"] | curses.A_BOLD
+            put(win, y, x, line, attr)
+            y += 1
+        if int(t * 2) % 2 == 0:
+            prompt = "PRESS ENTER"
+            put(win, h - 1, (w - len(prompt)) // 2, prompt, C["magenta"] | curses.A_BOLD)
+        win.refresh()
+        win.timeout(FRAME_MS)
+        try:
+            key = read_key(win)
+        except curses.error:
+            continue
+        if key in ("\n", "\r", " ", "q", "Q", "\x1b", curses.KEY_ENTER) and t > 0.5:
+            sound.play("select")
+            return
+
+
 def finale(win, info, sound):
     """Last screen. info: won, score, percent, pass_percent, solved, total, pods, review.
     Returns when the player presses Enter / q / Esc."""
@@ -993,6 +1132,9 @@ SFX = {
     # step answered
     "win": lambda: render_sfx([("C6", 0.06), ("G6", 0.06), ("C7", 0.18)], 0.25),
     "lose": lambda: render_sfx([("E4", 0.12), ("D#4", 0.12), ("D4", 0.12), ("C#4", 0.4)], 0.5, 0.25),
+    # the red zone of the countdown: a clock tick each second, higher for the last five
+    "tick": lambda: render_sfx([("A5", 0.025)], 0.125, 0.16),
+    "tick_hi": lambda: render_sfx([("E6", 0.03)], 0.125, 0.2),
     # question finished
     "clear": lambda: render_sfx([("C5", 0.09), ("E5", 0.09), ("G5", 0.09), ("C6", 0.09),
                                  ("E6", 0.09), ("G6", 0.27), ("E6", 0.09), ("G6", 0.6)], 0.25),

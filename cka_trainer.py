@@ -53,6 +53,9 @@ PRIME_MISS = "Good place to miss it: here a mistake is free; in production it co
 # REVIEW MISSED: the questions you got wrong, kept between runs until you solve them
 STATE_DIR = Path(os.environ.get("CKA_MEGATRAINER_HOME") or Path.home() / ".cka_megatrainer")
 REVIEW_FILE = "review.json"
+SCORES_FILE = "highscores.json"  # HI-SCORES: the top TOP_SCORES of each board (round x LEVEL)
+TOP_SCORES = 10
+TICK_GLOBAL = 60  # GLOBAL timer: the countdown ticks in its last minute (its red zone is 30 min long)
 
 
 # --------------------------------------------------------------------------
@@ -753,9 +756,20 @@ def draw_step(stdscr, title, q, step, options, ed, remaining, limit, warn=False,
     stdscr.refresh()
 
 
-def run_step(stdscr, title, q, step, options, clock=None):
+def tick_due(remaining, total, global_clock, last):
+    """The countdown's red-zone tick: None, 'tick' or 'tick_hi' (the last 5 s), once per second.
+    Returns (sound, the second it was for)."""
+    zone = remaining <= TICK_GLOBAL if global_clock else remaining <= 0.25 * total
+    sec = math.ceil(remaining)
+    if not zone or remaining <= 0 or sec == last:
+        return None, last
+    return ("tick_hi" if remaining <= 5 else "tick"), sec
+
+
+def run_step(stdscr, title, q, step, options, clock=None, sound=None):
     """Let the candidate answer one step. Returns (text, elapsed, how, pastes_blocked).
-    clock: {"deadline", "total"} of a GLOBAL timer, which then replaces the step's own limit."""
+    clock: {"deadline", "total"} of a GLOBAL timer, which then replaces the step's own limit.
+    sound: ticks in the red zone of the countdown."""
     limit = min(step.get("time_limit", MAX_TIME), MAX_TIME)
     ed = Editor(as_text(step.get("prefill")) if step["type"] == "edit" else "")
     curses.flushinp()  # drop keys typed on the previous screen
@@ -764,6 +778,7 @@ def run_step(stdscr, title, q, step, options, clock=None):
     pastes, in_paste, quarantine_until, warn_until = 0, False, 0.0, 0.0
     view = {"panel": 0}  # scroll position of the snippet options
     words = completion_words(step) if SETTINGS["autocomplete"] and step["type"] == "command" else None
+    ticked = None
     while True:
         now = time.monotonic()
         elapsed = now - start
@@ -772,6 +787,9 @@ def run_step(stdscr, title, q, step, options, clock=None):
         remaining, total = (clock["deadline"] - now, clock["total"]) if clock else (limit - elapsed, limit)
         if remaining <= 0:
             return ed.text(), (elapsed if clock else float(limit)), "timeout", pastes
+        tick, ticked = tick_due(remaining, total, bool(clock), ticked)
+        if tick and sound:
+            sound.play(tick)
         if too_small(stdscr):
             curses.napms(200)
             continue
@@ -963,7 +981,7 @@ def ask_question(stdscr, q, n, total, score, domains, sound, clock=None):
         random.shuffle(options)
         title = (f" {'CKA LEARN' if SETTINGS['learn'] else 'CKA MEGATRAINER'}  Q{n}/{total}  {q['id']}  {domains[q['domain']]['name']}"
                  f"  ·  step {stepno}/{plen}" + ("" if deferred else f"  ·  score {score + earned}"))
-        text, elapsed, how, pastes = run_step(stdscr, title, q, step, options, clock)
+        text, elapsed, how, pastes = run_step(stdscr, title, q, step, options, clock, sound)
         res = judge(step, text, how)
         limit = min(step.get("time_limit", MAX_TIME), MAX_TIME)
         pts = points_for(res["ok"], elapsed, limit)
@@ -1064,6 +1082,106 @@ def review_questions(questions, missed=None):
     return [by_id[i] for i in (load_review() if missed is None else missed) if i in by_id]
 
 
+# --------------------------------------------------------------------------
+# HI-SCORES: one table per board (the kind of round x LEVEL)
+# --------------------------------------------------------------------------
+
+def scores_path():
+    return STATE_DIR / SCORES_FILE
+
+
+def load_scores(path=None):
+    """{"boards": {board: [entry]}, "name": last initials}; a missing or damaged file is empty."""
+    try:
+        data = json.loads(Path(path or scores_path()).read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("boards"), dict):
+            return data
+    except (OSError, ValueError):
+        pass
+    return {"boards": {}, "name": "AAA"}
+
+
+def save_scores(data, path=None):
+    path = Path(path or scores_path())
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        return False
+
+
+def score_board(choice, domains, args):
+    """The table a round plays for, or None when its score compares with nothing: LEARN mode (the
+    answers are shown), REVIEW MISSED, --id, --domain (all of it) and a shortened round."""
+    if SETTINGS["learn"] or args.id or args.review:
+        return None
+    if choice == "exam":
+        name = "CKA EXAM"
+    elif choice in domains and not args.count:
+        name = short_name(domains[choice])
+    elif choice == "" and not args.count:
+        name = "ALL QUESTIONS"
+    else:
+        return None
+    return f"{name} · {SETTINGS['level'].upper()}"
+
+
+def score_mode():
+    """How the score was made, shown in its row: RECALL, HINTS, AUTO (autocomplete), END (feedback)."""
+    tags = ["RECALL" if SETTINGS["recall"] else "EXAM"]
+    tags += [t for t, on in (("HINTS", SETTINGS["hints"]), ("AUTO", SETTINGS["autocomplete"])) if on]
+    return "+".join(tags)
+
+
+def score_rank(table, score):
+    """0-based place of a new score (after the equal ones: they were there first), None if it is off."""
+    if score <= 0:
+        return None
+    rank = sum(e["score"] >= score for e in table)
+    return rank if rank < TOP_SCORES else None
+
+
+def add_score(data, board, entry):
+    """Insert the entry in its board; returns its place (None if it did not make it)."""
+    table = data["boards"].setdefault(board, [])
+    rank = score_rank(table, entry["score"])
+    if rank is not None:
+        table.insert(rank, entry)
+        del table[TOP_SCORES:]
+        data["name"] = entry["name"]
+    return rank
+
+
+def hi_scores(stdscr, board, info, sound):
+    """After the finale: the initials when the score makes the table, then the table."""
+    data = load_scores()
+    table = data["boards"].get(board, [])
+    rank = score_rank(table, info["score"])
+    if rank is not None:
+        name = retro.enter_initials(stdscr, sound, read_key, data.get("name", "AAA"), [
+            (f"YOU RANK {retro.ordinal(rank + 1)} ON", "cyan"), (board, "cyan"),
+            (f"SCORE {info['score']}  ·  EXAM {info['percent']}%", "white"), ("ENTER YOUR INITIALS", "yellow")])
+        add_score(data, board, {"name": name, "score": info["score"], "percent": info["percent"],
+                                "mode": score_mode(), "date": time.strftime("%Y-%m-%d")})
+        save_scores(data)
+        table = data["boards"][board]
+    if table:
+        retro.high_scores(stdscr, sound, read_key, board, table, rank)
+
+
+def scores_text(data):
+    """--scores: every board, in the terminal."""
+    if not data["boards"]:
+        return f"No high score yet ({scores_path()}). Play a CKA EXAM or a domain round!"
+    out = []
+    for board, table in sorted(data["boards"].items()):
+        out += [f"== {board} ==", *retro.score_rows(table), ""]
+    return "\n".join(out).rstrip()
+
+
 def rules_lines():
     b, n = A["bold"], A["normal"]
     return [
@@ -1092,13 +1210,18 @@ def rules_lines():
         ("Typing another option = choosing it. Typos count as wrong, like in a real shell.", n),
         ("A leading 'k ' is accepted as 'kubectl '. Copy/paste is blocked.", n), ("", 0),
         ("Countdown", b),
-        ("  Every step has its own timer (max 2 min): green, yellow at 50 %, red at 25 %.", n),
+        ("  Every step has its own timer (max 2 min): green, yellow at 50 %, red at 25 %,", n),
+        ("  where it ticks each second (GLOBAL timer: in its last minute).", n),
         ("  100 points per correct step + up to 50 speed bonus.", n), ("", 0),
         ("Steps", b),
         ("  Command step: Enter submits, '\\' + Enter continues on a new line.", n),
         ("  Edit step: a file opens in a multiline editor. Enter = new line, Ctrl+D submits.", n),
         ("  Ctrl+X skips a step, Ctrl+C quits.", n), ("", 0),
         ("A wrong step ends the question: read the explanation and the recap, then try again!", n),
+        ("", 0),
+        ("HI-SCORES", b),
+        ("  The CKA EXAM, each domain round and ALL QUESTIONS keep a top 10 per LEVEL: make it", n),
+        ("  and you enter your initials. Not in LEARN mode (also: --scores lists them).", n),
         ("", 0),
         ("Credits", b),
         ("  RECALL, HINTS and the all-options answer page come from CKS Megatrainer,", n),
@@ -1354,7 +1477,11 @@ def session(stdscr, domains, questions, args, sound):
                      "quit": False, "unreached": True} for q in questions[len(results):]]
     if results:
         save_review(update_review(load_review(), results, SETTINGS["learn"]))
-        retro.finale(stdscr, finale_info(results, questions, domains), sound)
+        info = finale_info(results, questions, domains)
+        retro.finale(stdscr, info, sound)
+        board = score_board(choice, domains, args)
+        if board:
+            hi_scores(stdscr, board, info, sound)
         if any(r.get("answers") for r in results):  # FEEDBACK AT THE END: now the answers
             pager(stdscr, " THE ANSWERS", answers_lines(results), footer="Enter / q: done")
     return results
@@ -1399,6 +1526,7 @@ def main(argv=None):
                     help="retro: vivid RGB on black (default); soft: the terminal's own colours")
     ap.add_argument("--validate", action="store_true", help="check the database and exit")
     ap.add_argument("--list", action="store_true", help="list questions and exit")
+    ap.add_argument("--scores", action="store_true", help="print the high-score tables and exit")
     args = ap.parse_args(argv)
     SETTINGS["allow_paste"] = args.allow_paste
     SETTINGS["silent"] = args.silent
@@ -1414,6 +1542,9 @@ def main(argv=None):
     if args.validate:
         nsteps = sum(len(q["steps"]) for q in questions)
         print(f"OK: {len(questions)} questions, {nsteps} steps, {len(domains)} domains")
+        return
+    if args.scores:
+        print(scores_text(load_scores()))
         return
     if args.list:
         for q in questions:

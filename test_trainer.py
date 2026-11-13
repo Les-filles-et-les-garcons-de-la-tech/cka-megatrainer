@@ -790,5 +790,85 @@ class FeedbackAtEnd(unittest.TestCase):
         self.assertTrue(r["solved"])
         self.assertEqual(self.sounds, [])
 
+
+class Arcade(unittest.TestCase):
+    """The red-zone tick and the HI-SCORES tables."""
+    def setUp(self):
+        import tempfile
+        saved = dict(t.SETTINGS)
+        self.addCleanup(lambda: (t.SETTINGS.clear(), t.SETTINGS.update(saved)))
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.addCleanup(setattr, t, "STATE_DIR", t.STATE_DIR)
+        t.STATE_DIR = Path(tmp.name)  # never the player's own tables
+
+    def ticks(self, start, total, global_clock=False, step=0.1):
+        """The ticks heard while the countdown runs from start to 0, sampled every step seconds."""
+        heard, last, rem = [], None, start
+        while rem > 0:
+            tick, last = t.tick_due(rem, total, global_clock, last)
+            if tick:
+                heard.append((tick, last))
+            rem = round(rem - step, 3)
+        return heard
+
+    def test_tick_each_second_of_the_red_zone_higher_at_the_end(self):
+        heard = self.ticks(60, 60)  # red zone: the last 25 % = 15 s
+        self.assertEqual([sec for _, sec in heard], list(range(15, 0, -1)))
+        self.assertEqual([k for k, sec in heard if k == "tick_hi"], ["tick_hi"] * 5)
+        self.assertEqual({k for k, sec in heard if sec > 5}, {"tick"})
+
+    def test_global_clock_ticks_only_in_its_last_minute(self):
+        heard = self.ticks(120, 7200, global_clock=True, step=0.5)
+        self.assertEqual(len(heard), 60)
+
+    def entry(self, score, name="ABC"):
+        return {"name": name, "score": score, "percent": 70, "mode": "EXAM", "date": "2026-11-13"}
+
+    def test_top_ten_ties_keep_the_older_entry_first(self):
+        data = t.load_scores()
+        for sc in (500, 300, 300, 100):
+            t.add_score(data, "B", self.entry(sc))
+        self.assertEqual(t.add_score(data, "B", self.entry(300, "NEW")), 3)  # after the two 300s
+        self.assertIsNone(t.score_rank(data["boards"]["B"], 0))  # nothing scored, nothing to keep
+        for sc in range(1000, 1010):
+            t.add_score(data, "B", self.entry(sc))
+        self.assertEqual(len(data["boards"]["B"]), t.TOP_SCORES)
+        self.assertIsNone(t.add_score(data, "B", self.entry(1)))
+        self.assertEqual(data["name"], "ABC")
+
+    def test_scores_round_trip_and_damaged_file(self):
+        self.assertEqual(t.load_scores(), {"boards": {}, "name": "AAA"})
+        data = t.load_scores()
+        t.add_score(data, "CKA EXAM · HARD", self.entry(1234, "FRY"))
+        self.assertTrue(t.save_scores(data))
+        self.assertEqual(t.load_scores()["boards"]["CKA EXAM · HARD"][0]["name"], "FRY")
+        self.assertIn("1ST   FRY", t.scores_text(t.load_scores()))
+        t.scores_path().write_text("[]", encoding="utf-8")
+        self.assertEqual(t.load_scores()["boards"], {})
+
+    def test_boards_only_for_comparable_rounds(self):
+        import argparse
+        args = argparse.Namespace(id=None, review=False, count=None)
+        t.SETTINGS.update(level="medium", learn=False)
+        d = next(iter(DOMAINS))
+        self.assertEqual(t.score_board("exam", DOMAINS, args), "CKA EXAM · MEDIUM")
+        self.assertEqual(t.score_board(d, DOMAINS, args), t.short_name(DOMAINS[d]) + " · MEDIUM")
+        self.assertEqual(t.score_board("", DOMAINS, args), "ALL QUESTIONS · MEDIUM")
+        self.assertIsNone(t.score_board(None, DOMAINS, args))  # --domain: all of it
+        self.assertIsNone(t.score_board("review", DOMAINS, args))
+        self.assertIsNone(t.score_board("", DOMAINS, argparse.Namespace(id=None, review=False, count=5)))
+        self.assertIsNone(t.score_board("exam", DOMAINS, argparse.Namespace(id=["CLU-001"], review=False, count=None)))
+        t.SETTINGS["learn"] = True
+        self.assertIsNone(t.score_board("exam", DOMAINS, args))
+
+    def test_score_mode_tags(self):
+        t.SETTINGS.update(recall=True, hints=True, autocomplete=False)
+        self.assertEqual(t.score_mode(), "RECALL+HINTS")
+        t.SETTINGS.update(recall=False, hints=False, autocomplete=True)
+        self.assertEqual(t.score_mode(), "EXAM+AUTO")
+        widest = len("RECALL+HINTS+AUTO")
+        self.assertLessEqual(len(t.retro.score_rows([{**self.entry(999999), "mode": "X" * widest}])[1]), 60)
+
 if __name__ == "__main__":
     unittest.main()
