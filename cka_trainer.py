@@ -246,6 +246,55 @@ def evaluate_command(step, text):
     return {"ok": False, "option": None, "close": by_norm[close[0]] if close else None}
 
 
+DIFF_GAP = "·"   # a character missing on one side of the typo diff
+DIFF_CHUNK = 56  # columns per row of the typo diff: fits the narrowest answer page (70 columns)
+
+
+def typo_target(typed, option):
+    """The form of the option (command or alias) the typed line is closest to, written the way it
+    was typed: with 'k ' if the player used the alias."""
+    forms = [" ".join(c.split()) for c in [option["cmd"], *option.get("aliases", [])]]
+    if typed.startswith("k "):
+        forms = ["k " + f[len("kubectl "):] if f.startswith("kubectl ") else f for f in forms]
+    return max(forms, key=lambda f: difflib.SequenceMatcher(None, typed, f, autojunk=False).ratio())
+
+
+def typo_diff(typed, target):
+    """Character-level alignment of a typo: (yours, right, marks), the same length. marks: '^' a wrong
+    character, '+' one missing from yours, '-' one too many in yours; gaps are DIFF_GAP."""
+    yours, right, marks = [], [], []
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, typed, target, autojunk=False).get_opcodes():
+        a, b = typed[i1:i2], target[j1:j2]
+        n = max(len(a), len(b))
+        yours.append(a.ljust(n, DIFF_GAP))
+        right.append(b.ljust(n, DIFF_GAP))
+        if op == "equal":
+            marks.append(" " * n)
+        else:
+            both = min(len(a), len(b))
+            marks.append("^" * both + ("-" if len(a) > len(b) else "+") * (n - both))
+    return "".join(yours), "".join(right), "".join(marks)
+
+
+def typo_lines(text, option):
+    """The answer page's diff of a typo against the right option, in aligned chunks."""
+    typed = " ".join(text.replace("\\\n", " ").split())
+    yours, right, marks = typo_diff(typed, typo_target(typed, option))
+    lines, i = [], 0
+    while i < len(yours):
+        end = i + DIFF_CHUNK
+        if end < len(yours):  # break after a space both rows share, so no word is cut in two
+            cut = max((k for k in range(i + 1, end) if yours[k] == right[k] == " "), default=end - 1)
+            end = cut + 1
+        lines += [("    yours  " + yours[i:end], A["yellow"], True),
+                  ("    right  " + right[i:end], A["green"], True),
+                  ("           " + marks[i:end].rstrip(), A["red"] | A["bold"], True)]
+        i = end
+    legend = [f"{m} {what}" for m, what in (("^", "wrong character"), ("+", "missing"), ("-", "one too many"))
+              if m in marks]
+    return lines + [("           " + "   ".join(legend), A["dim"], True)]
+
+
 def evaluate_edit(step, text):
     problems = []
     if "\t" in text:
@@ -909,6 +958,7 @@ def feedback_lines(step, options, text, res, elapsed, pts, pastes=0, docs=None, 
             elif res.get("close") is good:
                 lines.append(("  Almost: you aimed at the right answer but made a typo. "
                               "In the exam a typo is a failed command.", A["normal"]))
+                lines += [("", 0)] + typo_lines(text, good)
             elif res.get("close"):
                 lines.append((f"  Closest to option {LABELS[options.index(res['close'])]} (with typos): "
                               "see why below.", A["normal"]))

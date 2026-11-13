@@ -870,5 +870,44 @@ class Arcade(unittest.TestCase):
         widest = len("RECALL+HINTS+AUTO")
         self.assertLessEqual(len(t.retro.score_rows([{**self.entry(999999), "mode": "X" * widest}])[1]), 60)
 
+
+class TypoDiff(unittest.TestCase):
+    """A typo of the right answer: yours and the right one aligned, character by character."""
+    def setUp(self):
+        t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "magenta", "bold", "dim", "rev", "normal")})
+
+    def test_marks_wrong_missing_and_extra_characters(self):
+        self.assertEqual(t.typo_diff("kubectl uncordn node01", "kubectl uncordon node01"),
+                         ("kubectl uncord·n node01", "kubectl uncordon node01", "              +        "))
+        self.assertEqual(t.typo_diff("get podss", "get pods")[2].strip(), "-")
+        self.assertEqual(t.typo_diff("get pids", "get pods")[2].strip(), "^")
+        for typed, right in (("a", "abcdef"), ("kubectl get po", "k get pods"), ("x" * 90, "y" * 70)):
+            yours, good, marks = t.typo_diff(typed, right)
+            self.assertEqual(len(yours), len(good))
+            self.assertEqual(len(marks), len(yours))
+            self.assertEqual(yours.replace(t.DIFF_GAP, ""), typed)
+            self.assertEqual(good.replace(t.DIFF_GAP, ""), right)
+
+    def test_target_is_the_closest_form_written_like_the_player(self):
+        o = {"cmd": "kubectl get endpoints web-svc", "aliases": ["kubectl get ep web-svc"]}
+        self.assertEqual(t.typo_target("kubectl get ep web-scv", o), "kubectl get ep web-svc")
+        self.assertEqual(t.typo_target("k get endpoints web-sv", o), "k get endpoints web-svc")
+
+    def test_answer_page_shows_the_diff_for_a_typo_only(self):
+        step = BY_ID["CLU-002"]["steps"]["s3"]
+        pages = {}
+        for text in ("kubectl uncordn node01", "ls -la", ""):
+            res = t.judge(step, text, "submit" if text else "timeout")
+            pages[text] = [x[0] for x in t.feedback_lines(step, step["options"], text, res, 1.0, 0)]
+        self.assertIn("    right  kubectl uncordon node01", pages["kubectl uncordn node01"])
+        for text in ("ls -la", ""):  # no typo of the right answer: no diff
+            self.assertFalse(any(ln.startswith("    yours  ") for ln in pages[text]), text)
+
+    def test_long_commands_fit_the_narrowest_page(self):
+        long = "kubectl create deployment web --image=nginx:1.27 --replicas=3 --dry-run=client -o yaml"
+        rows = t.typo_lines(long.replace("replicas", "replcas") + " > web.yaml", {"cmd": long + " > web.yaml"})
+        self.assertTrue(all(len(r[0]) <= t.MIN_W - 3 for r in rows))
+        self.assertEqual(sum(r[0].startswith("    yours  ") for r in rows), 2)  # two aligned chunks
+
 if __name__ == "__main__":
     unittest.main()

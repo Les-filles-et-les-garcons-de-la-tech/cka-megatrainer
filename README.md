@@ -72,6 +72,8 @@ They have no sound. The game itself plays an original chiptune.
 5. Every answer is explained: after a miss, **all the options** are listed, the right one first
    (✔, with its accepted forms and why it is right), then each trap (✘) with what it would really
    do, your own choice marked. A wrong step ends the question with a recap of the full solution and an exam tip.
+   A typo of the right command is shown character by character under the right one
+   (`^` wrong character, `+` missing, `-` one too many).
 6. Hard questions have the shape of a real exam task, 5 or 6 steps: prepare, change, wait, verify.
 7. Scoring: 100 points per correct step + up to 50 speed bonus. **Copy/paste is blocked**: you type.
 
