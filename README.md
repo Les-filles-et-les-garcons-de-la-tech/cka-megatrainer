@@ -92,6 +92,11 @@ Each domain entry plays a **short round on that domain**: its share of a 20-ques
 at random (e.g. STORAGE: 2 questions, TROUBLESHOOTING: 6). **ALL QUESTIONS** plays the whole
 library; `--domain NAME` on the command line plays all the questions of one domain.
 
+**REVIEW MISSED** appears once you have missed a question: it replays only the questions you got wrong,
+from any run and at any LEVEL. A question leaves the list when you solve it (not in LEARN mode, where
+the answer was shown). The list is kept in `~/.cka_megatrainer/review.json` (set `CKA_MEGATRAINER_HOME`
+to keep it elsewhere); delete the file to start over.
+
 At the end, your exam score is the share of correct steps (partial credit, like the real exam).
 At **66 % or more**, the CKA pass mark, you get **YOU WIN** with fireworks; below, **GAME OVER**. Either way
 your results come up as pods: READY = solved, RESTARTS = failed, AGE = time spent.
@@ -187,6 +192,7 @@ make help                                # all targets
 ./cka_trainer.py --exam --count 20           # an exam of exactly 20 questions
 ./cka_trainer.py --domain troubleshooting    # practise one domain (all its questions)
 ./cka_trainer.py --id NET-001 --id TRB-003   # specific questions
+./cka_trainer.py --review                    # only the questions you missed so far
 ./cka_trainer.py --count 5                   # 5 random questions
 ./cka_trainer.py --theme soft                # your terminal's colours instead of retro RGB
 ./cka_trainer.py --learn                     # learn mode (see above)

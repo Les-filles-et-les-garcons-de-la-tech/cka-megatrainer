@@ -681,5 +681,57 @@ class EditorKeys(unittest.TestCase):
         self.assertEqual(cursor, (2, 5))
 
 
+
+class Review(unittest.TestCase):
+    """REVIEW MISSED: the wrong questions are kept between runs until solved."""
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.old = t.STATE_DIR
+        t.STATE_DIR = Path(self.tmp.name) / "state"  # never the player's own ~/.cka_megatrainer
+        self.addCleanup(setattr, t, "STATE_DIR", self.old)
+
+    @staticmethod
+    def r(qid, steps, solved=False):
+        return {"id": qid, "domain": "cluster", "points": 0, "solved": solved,
+                "steps": [{"ok": ok, "time": 1.0} for ok in steps], "quit": False}
+
+    def test_missing_or_damaged_file_is_an_empty_list(self):
+        self.assertEqual(t.load_review(), [])
+        t.review_path().parent.mkdir(parents=True)
+        t.review_path().write_text("{not json", encoding="utf-8")
+        self.assertEqual(t.load_review(), [])
+        t.review_path().write_text('["CLU-001"]', encoding="utf-8")
+        self.assertEqual(t.load_review(), [])
+
+    def test_save_then_load_round_trips(self):
+        self.assertTrue(t.save_review(["CLU-002", "TRB-002"]))
+        self.assertEqual(t.load_review(), ["CLU-002", "TRB-002"])
+        self.assertFalse(list(t.review_path().parent.glob("*.tmp")))
+
+    def test_wrong_step_joins_solved_leaves_others_stay(self):
+        results = [self.r("CLU-001", [True, False]),           # missed: joins
+                   self.r("CLU-002", [True, True, True], True),  # solved: leaves
+                   self.r("TRB-002", [True]),                  # quit after a right step: unchanged
+                   {**self.r("STO-001", []), "unreached": True}]  # global clock: unchanged
+        self.assertEqual(t.update_review(["CLU-002", "TRB-002"], results), ["TRB-002", "CLU-001"])
+        self.assertEqual(t.update_review(["CLU-001"], [self.r("CLU-001", [False])]), ["CLU-001"])  # no duplicate
+
+    def test_learn_mode_solve_does_not_clear(self):
+        solved = [self.r("CLU-002", [True, True, True], True)]
+        self.assertEqual(t.update_review(["CLU-002"], solved, learn=True), ["CLU-002"])
+        self.assertEqual(t.update_review(["CLU-002"], solved, learn=False), [])
+
+    def test_review_questions_skip_unknown_ids_and_keep_order(self):
+        got = t.review_questions(FX_QUESTIONS, ["TRB-002", "GONE-999", "CLU-001"])
+        self.assertEqual([q["id"] for q in got], ["TRB-002", "CLU-001"])
+
+    def test_review_flag_with_nothing_to_review_exits(self):
+        with self.assertRaises(SystemExit) as cm:
+            t.main(["--review", "--silent"])
+        self.assertIn("Nothing to review", str(cm.exception.code))
+
+
 if __name__ == "__main__":
     unittest.main()

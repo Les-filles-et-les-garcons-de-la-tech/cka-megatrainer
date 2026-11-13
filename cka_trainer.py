@@ -49,6 +49,9 @@ LEVELS = {"easy": 1, "medium": 2, "hard": 3}  # a level plays the questions up t
 EXAM_SECONDS = 120 * 60  # the CKA: 2 hours for the whole exam
 PRIME_OK = "Right. Before you move on: say why each of the others fails."
 PRIME_MISS = "Good place to miss it: here a mistake is free; in production it costs sleep."
+# REVIEW MISSED: the questions you got wrong, kept between runs until you solve them
+STATE_DIR = Path(os.environ.get("CKA_MEGATRAINER_HOME") or Path.home() / ".cka_megatrainer")
+REVIEW_FILE = "review.json"
 
 
 # --------------------------------------------------------------------------
@@ -969,12 +972,64 @@ def ask_question(stdscr, q, n, total, score, domains, sound, clock=None):
             "solved": solved, "steps": log, "quit": quit_}
 
 
+# --------------------------------------------------------------------------
+# Review: the missed questions, kept between runs
+# --------------------------------------------------------------------------
+
+def review_path():
+    return STATE_DIR / REVIEW_FILE
+
+
+def load_review(path=None):
+    """The ids to review, oldest miss first. A missing or damaged file is an empty list."""
+    try:
+        data = json.loads(Path(path or review_path()).read_text(encoding="utf-8"))
+        ids = data.get("missed", []) if isinstance(data, dict) else []
+        return [i for i in dict.fromkeys(ids) if isinstance(i, str)]
+    except (OSError, ValueError):
+        return []
+
+
+def update_review(missed, results, learn=False):
+    """The review list after a session: a question with a wrong (or skipped) step joins it; a solved
+    one leaves it, except in LEARN mode, where the answer was shown. Questions quit before any wrong
+    step or never reached (global clock) keep their place."""
+    missed = list(missed)
+    for r in results:
+        if r["solved"] and not learn:
+            missed = [i for i in missed if i != r["id"]]
+        elif not r["solved"] and any(not s["ok"] for s in r["steps"]) and r["id"] not in missed:
+            missed.append(r["id"])
+    return missed
+
+
+def save_review(missed, path=None):
+    """Write the list (atomically); the game goes on if the disk says no."""
+    path = Path(path or review_path())
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"missed": missed}, indent=1) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        return False
+
+
+def review_questions(questions, missed=None):
+    """The questions of the review list that still exist, in list order."""
+    by_id = {q["id"]: q for q in questions}
+    return [by_id[i] for i in (load_review() if missed is None else missed) if i in by_id]
+
+
 def rules_lines():
     b, n = A["bold"], A["normal"]
     return [
         ("Train like the exam: read the task, choose the right command and TYPE it in full.", n),
         ("CKA EXAM: 15-20 random questions in the exam's domain proportions. A domain line", n),
-        ("plays a short round: its share of a 20-question exam (e.g. STORAGE 2/20 = 2).", n), ("", 0),
+        ("plays a short round: its share of a 20-question exam (e.g. STORAGE 2/20 = 2).", n),
+        ("REVIEW MISSED (once you missed one): replays only the questions you got wrong, in", n),
+        ("any run, at any LEVEL. Solve one and it leaves the list (also: --review).", n), ("", 0),
         ("LEVEL (title menu, LEFT/RIGHT): EASY everyday tasks, MEDIUM + medium, HARD all.", n),
         ("", 0),
         ("OPTIONS (title menu)", b),
@@ -1117,7 +1172,11 @@ def menu(stdscr, domains, questions, sound):
         items = [("exam", "CKA EXAM", f"{EXAM_MIN}-{EXAM_MAX}Q")]
         items += [(d, short_name(v), f"{share[d]}/{EXAM_MAX} {v['weight']:>2}%")
                   for d, v in domains.items() if counts[d]]
-        return items + [("", "ALL QUESTIONS", f"{len(pool)}Q"),
+        missed = review_questions(questions)
+        items.append(("", "ALL QUESTIONS", f"{len(pool)}Q"))
+        if missed:
+            items.append(("review", "REVIEW MISSED", f"{len(missed)}Q"))
+        return items + [
                         ("level", "LEVEL", SETTINGS["level"].upper()),  # changed in place
                         ("help", "HOW TO PLAY", ""), ("options", "OPTIONS", ""), (None, "QUIT", "")]
 
@@ -1167,7 +1226,8 @@ def summary_lines(results, domains):
     if missed:
         lines += [("", 0), ("Review these questions:", A["bold"]), ("  " + "  ".join(missed), A["yellow"]),
                   (f"  Replay them with: python3 {sys.argv[0]} " + ("--learn " if SETTINGS["learn"] else "")
-                   + " ".join(f"--id {m}" for m in missed), A["dim"])]
+                   + " ".join(f"--id {m}" for m in missed), A["dim"]),
+                  ("  or every question you missed so far: REVIEW MISSED in the menu, or --review", A["dim"])]
     return lines
 
 
@@ -1208,18 +1268,20 @@ def play(stdscr, domains, questions, args):
 
 
 def session(stdscr, domains, questions, args, sound):
-    choice = "exam" if args.exam else None
-    if not args.id and args.domain is None and not args.exam:
+    choice = "exam" if args.exam else "review" if args.review else None
+    if not args.id and args.domain is None and not args.exam and not args.review:
         choice = menu(stdscr, domains, questions, sound)
         if choice is None:
             return []
-    if not args.id:  # explicit --id plays exactly what was asked
+    if choice == "review":  # what you missed, whatever its level
+        questions = review_questions(questions)
+    elif not args.id:  # explicit --id plays exactly what was asked
         questions = at_level(questions)
     if choice == "exam":
         questions = pick_exam(questions, domains, n=args.count)
-    elif choice:  # a domain line of the menu: its share of a 20-question exam, as labelled
+    elif choice and choice != "review":  # a domain line of the menu: its share of a 20-question exam
         questions = pick_domain_round(questions, domains, choice, n=args.count)
-    else:  # ALL QUESTIONS, --domain (all its questions) or --id
+    else:  # ALL QUESTIONS, REVIEW MISSED, --domain (all its questions) or --id
         if args.shuffle:
             random.shuffle(questions)
         if args.count:
@@ -1239,6 +1301,7 @@ def session(stdscr, domains, questions, args, sound):
         results += [{"id": q["id"], "domain": q["domain"], "points": 0, "solved": False, "steps": [],
                      "quit": False, "unreached": True} for q in questions[len(results):]]
     if results:
+        save_review(update_review(load_review(), results, SETTINGS["learn"]))
         retro.finale(stdscr, finale_info(results, questions, domains), sound)
     return results
 
@@ -1251,6 +1314,9 @@ def main(argv=None):
     ap.add_argument("--id", action="append", help="only this question id (repeatable)")
     ap.add_argument("--exam", action="store_true",
                     help=f"CKA-like exam: {EXAM_MIN}-{EXAM_MAX} random questions in domain proportions (skips the menu)")
+    ap.add_argument("--review", action="store_true",
+                    help="replay only the questions you missed (kept in ~/.cka_megatrainer/review.json "
+                         "until solved; CKA_MEGATRAINER_HOME moves it)")
     ap.add_argument("--count", type=int, help="maximum number of questions (with --exam: the exam size)")
     ap.add_argument("--no-shuffle", dest="shuffle", action="store_false", help="keep database order")
     ap.add_argument("--allow-paste", action="store_true", help="do not block pasted input")
@@ -1306,6 +1372,8 @@ def main(argv=None):
         if unknown:
             sys.exit(f"Unknown question id(s): {', '.join(sorted(unknown))}")
         questions = [q for q in questions if q["id"] in wanted]
+    if args.review and not review_questions(questions):
+        sys.exit(f"Nothing to review: no missed question in {review_path()} yet. Play a round first!")
     try:
         results = curses.wrapper(play, domains, questions, args)
     except KeyboardInterrupt:
