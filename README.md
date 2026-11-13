@@ -69,6 +69,7 @@ They have no sound. The game itself plays an original chiptune.
    spaces are shown as `·` so you can count the indentation.
 4. The countdown bar turns **yellow at 50 %** and **red at 25 %** of the time left (max 2 min per step);
    in the red it ticks each second, higher for the last five (GLOBAL timer: in its last minute).
+   A wrong answer or a time-out makes the bar blink red with the verdict in it (not with FEEDBACK AT THE END).
 5. Every answer is explained: after a miss, **all the options** are listed, the right one first
    (✔, with its accepted forms and why it is right), then each trap (✘) with what it would really
    do, your own choice marked. A wrong step ends the question with a recap of the full solution and an exam tip.

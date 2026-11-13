@@ -624,6 +624,26 @@ def countdown(stdscr, y, remaining, limit):
     put(stdscr, y, width, label, color | A["bold"])
 
 
+MISS_FLASHES, MISS_FLASH_MS = 3, 90  # a missed step: the countdown bar blinks red
+
+
+def miss_flash(stdscr, how):
+    """A wrong answer or a time-out: the countdown bar (row 1) blinks red with the verdict in it,
+    right before the answer page. Not for a skip: that was a choice."""
+    if how not in ("submit", "timeout"):
+        return
+    w = stdscr.getmaxyx()[1]
+    label = " ⏱ TIME'S UP " if how == "timeout" else " ✘ WRONG "
+    x = max(0, (w - len(label)) // 2)
+    for i in range(MISS_FLASHES * 2):
+        on = i % 2 == 0
+        put(stdscr, 1, 0, ("█" if on else "░") * (w - 1), A["red"] | (A["bold"] if on else A["dim"]))
+        put(stdscr, 1, x, label, A["red"] | A["bold"] | A["rev"])
+        stdscr.refresh()
+        curses.napms(MISS_FLASH_MS)
+    curses.flushinp()  # keys hit during the flash do not page through the answer
+
+
 def pager(stdscr, title, lines, footer="Enter: continue   q: quit"):
     """Scrollable text screen. Returns 'next' or 'quit'."""
     stdscr.timeout(-1)
@@ -1052,6 +1072,8 @@ def ask_question(stdscr, q, n, total, score, domains, sound, clock=None):
             nxt = correct_next(step)
         else:
             sound.play("win" if res["ok"] else "lose")
+            if not res["ok"]:
+                miss_flash(stdscr, how)
             quit_ = pager(stdscr, page_title, page) == "quit"
             solved = res["ok"] and not res["next"]
             nxt = res["next"]

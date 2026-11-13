@@ -742,8 +742,10 @@ class FeedbackAtEnd(unittest.TestCase):
         self.addCleanup(lambda: (t.SETTINGS.clear(), t.SETTINGS.update(saved)))
         t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "magenta", "bold", "dim", "rev", "normal")})
         self.pages, self.sounds = [], []
+        self.real_flash = t.miss_flash
         for mod, name, fake in ((t, "pager", lambda scr, title, lines, **kw: self.pages.append(title) or "next"),
-                                (t.retro, "level_screen", lambda *a, **kw: None)):
+                                (t.retro, "level_screen", lambda *a, **kw: None),
+                                (t, "miss_flash", lambda *a: None)):
             self.addCleanup(setattr, mod, name, getattr(mod, name))
             setattr(mod, name, fake)
         self.sound = type("S", (), {"play": lambda _, name: self.sounds.append(name)})()
@@ -763,6 +765,38 @@ class FeedbackAtEnd(unittest.TestCase):
         t.SETTINGS["learn"] = False
         self.assertTrue(t.feedback_at_end())
         self.assertIn("FEEDBACK AT END", t.options_status(FakeSound()))
+
+    def test_miss_flash_only_after_a_visible_miss(self):
+        flashes = []
+        t.miss_flash = lambda scr, how: flashes.append(how)
+        self.play("CLU-001", ["nope"])
+        self.play("CLU-001", self.right("CLU-001"))
+        self.assertEqual(flashes, ["submit"])  # a right answer does not flash
+        t.SETTINGS["feedback"] = "end"
+        self.play("CLU-001", ["nope"] + self.right("CLU-001")[1:])
+        self.assertEqual(flashes, ["submit"])  # FEEDBACK AT THE END: no verdict, no flash
+
+    def test_miss_flash_skips_a_skip(self):
+        class Scr:
+            def __init__(self):
+                self.drawn = 0
+
+            def getmaxyx(self):
+                return 24, 80
+
+            def addnstr(self, *a):
+                self.drawn += 1
+
+            def refresh(self):
+                pass
+        scr = Scr()
+        self.addCleanup(setattr, t.curses, "napms", t.curses.napms)
+        self.addCleanup(setattr, t.curses, "flushinp", t.curses.flushinp)
+        t.curses.napms = t.curses.flushinp = lambda *a: None
+        self.real_flash(scr, "skip")
+        self.assertEqual(scr.drawn, 0)
+        self.real_flash(scr, "timeout")
+        self.assertEqual(scr.drawn, t.MISS_FLASHES * 2 * 2)  # the bar and its label, each blink
 
     def test_each_step_mode_ends_the_question_at_the_first_wrong_step(self):
         r = self.play("CLU-001", ["nope"])
