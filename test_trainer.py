@@ -297,11 +297,12 @@ class Options(unittest.TestCase):
     def test_option_rows_change_settings_and_sound(self):
         snd = FakeSound()
         rows = {r["label"]: r for r in t.option_rows(QUESTIONS, snd)}
-        self.assertEqual(list(rows), ["MODE", "HINTS", "AUTOCOMPLETE", "TIMER", "MUSIC", "SOUND"])  # LEVEL: title menu
+        self.assertEqual(list(rows), ["MODE", "HINTS", "FEEDBACK", "AUTOCOMPLETE", "TIMER", "MUSIC", "SOUND"])  # LEVEL: title menu
         self.assertEqual(rows["AUTOCOMPLETE"]["values"][rows["AUTOCOMPLETE"]["index"]], "OFF")  # off by default
         for label, value, key, expected in (("MODE", "LEARN", "learn", True), ("TIMER", "GLOBAL", "timer", "global"),
                                             ("AUTOCOMPLETE", "ON", "autocomplete", True), ("HINTS", "ON", "hints", True),
-                                            ("SOUND", "STEREO", "stereo", True)):
+                                            ("SOUND", "STEREO", "stereo", True),
+                                            ("FEEDBACK", "AT THE END", "feedback", "end")):
             rows[label]["on_change"](value)
             self.assertEqual(t.SETTINGS[key], expected, label)
         rows["MUSIC"]["on_change"]("OFF")
@@ -732,6 +733,62 @@ class Review(unittest.TestCase):
             t.main(["--review", "--silent"])
         self.assertIn("Nothing to review", str(cm.exception.code))
 
+
+
+class FeedbackAtEnd(unittest.TestCase):
+    """FEEDBACK AT THE END: no verdict while playing, a wrong step goes on, the answers come last."""
+    def setUp(self):
+        saved = dict(t.SETTINGS)
+        self.addCleanup(lambda: (t.SETTINGS.clear(), t.SETTINGS.update(saved)))
+        t.A.update({k: 0 for k in ("green", "yellow", "red", "cyan", "magenta", "bold", "dim", "rev", "normal")})
+        self.pages, self.sounds = [], []
+        for mod, name, fake in ((t, "pager", lambda scr, title, lines, **kw: self.pages.append(title) or "next"),
+                                (t.retro, "level_screen", lambda *a, **kw: None)):
+            self.addCleanup(setattr, mod, name, getattr(mod, name))
+            setattr(mod, name, fake)
+        self.sound = type("S", (), {"play": lambda _, name: self.sounds.append(name)})()
+
+    def play(self, qid, typed):
+        answers = iter(typed)
+        self.addCleanup(setattr, t, "run_step", t.run_step)
+        t.run_step = lambda *a: (next(answers), 3.0, "submit", 0)
+        return t.ask_question(None, BY_ID[qid], 1, 1, 0, FX_DOMAINS, self.sound)
+
+    def right(self, qid):
+        return [t.correct_option(s)["cmd"] for _, s in t.correct_path(BY_ID[qid])]
+
+    def test_learn_mode_keeps_feedback_after_each_step(self):
+        t.SETTINGS.update(feedback="end", learn=True)
+        self.assertFalse(t.feedback_at_end())
+        t.SETTINGS["learn"] = False
+        self.assertTrue(t.feedback_at_end())
+        self.assertIn("FEEDBACK AT END", t.options_status(FakeSound()))
+
+    def test_each_step_mode_ends_the_question_at_the_first_wrong_step(self):
+        r = self.play("CLU-001", ["nope"])
+        self.assertEqual([s["ok"] for s in r["steps"]], [False])
+        self.assertEqual(len(self.pages), 2)  # the answer page, then the recap
+        self.assertEqual(self.sounds, ["lose", "fail"])
+        self.assertEqual(r["answers"], [])
+
+    def test_wrong_step_goes_on_silently_and_answers_are_kept(self):
+        t.SETTINGS["feedback"] = "end"
+        right = self.right("CLU-001")
+        r = self.play("CLU-001", ["nope"] + right[1:])
+        self.assertEqual([s["ok"] for s in r["steps"]], [False, True, True])  # partial credit, like the exam
+        self.assertFalse(r["solved"])
+        self.assertEqual((self.pages, self.sounds), ([], []))  # no verdict while playing
+        self.assertEqual(len(r["answers"]), 3 + 1)  # each step's page, then the recap
+        text = [x[0] for x in t.answers_lines([r])]
+        self.assertIn(f"Q1  CLU-001  ·  ✘ not solved  ·  {r['points']} points", text[:6])
+        self.assertGreater(r["points"], 200)  # 2 right steps (+ speed bonus)
+        self.assertIn("✘ WRONG", text)
+
+    def test_all_right_is_solved(self):
+        t.SETTINGS["feedback"] = "end"
+        r = self.play("CLU-001", self.right("CLU-001"))
+        self.assertTrue(r["solved"])
+        self.assertEqual(self.sounds, [])
 
 if __name__ == "__main__":
     unittest.main()

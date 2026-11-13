@@ -42,7 +42,8 @@ PASTE_START, PASTE_END = -200, -201  # bracketed-paste markers (ints: the editor
 
 A = {}  # curses attributes, filled by init_colors()
 SETTINGS = {"allow_paste": False, "silent": False, "learn": False, "recall": False, "hints": False,  # OPTIONS + flags
-            "timer": "question", "level": "hard", "stereo": False, "autocomplete": False}
+            "timer": "question", "level": "hard", "stereo": False, "autocomplete": False,
+            "feedback": "step"}  # feedback "end": the answers only after the last question
 MAX_HINT = 150  # characters of a step's 'hint' (HINTS option): a nudge, never the answer
 RECALL_HINT = 0.5  # RECALL mode: the options appear once this share of the step's time has passed
 LEVELS = {"easy": 1, "medium": 2, "hard": 3}  # a level plays the questions up to its difficulty
@@ -283,6 +284,17 @@ def judge(step, text, how):
     else:
         res["next"] = None
     return res
+
+
+def correct_next(step):
+    """The step after this one on the solution path (None at the end)."""
+    return correct_option(step).get("next") if step["type"] == "command" else step.get("next")
+
+
+def feedback_at_end():
+    """FEEDBACK AT THE END, like the exam: nothing tells a step was right until the last screen.
+    LEARN mode always explains each step."""
+    return SETTINGS["feedback"] == "end" and not SETTINGS["learn"]
 
 
 def points_for(ok, elapsed, limit):
@@ -942,34 +954,64 @@ def ask_question(stdscr, q, n, total, score, domains, sound, clock=None):
                                                    f"on the global clock" if clock else f"{seconds}s on the clock"),
          "white"),
     ], sound)
+    deferred = feedback_at_end()
+    answers = []  # FEEDBACK AT THE END: each step's answer page, shown after the finale
     while sid:
         step = q["steps"][sid]
         stepno += 1
         options = list(step.get("options", []))
         random.shuffle(options)
         title = (f" {'CKA LEARN' if SETTINGS['learn'] else 'CKA MEGATRAINER'}  Q{n}/{total}  {q['id']}  {domains[q['domain']]['name']}"
-                 f"  ·  step {stepno}/{plen}  ·  score {score + earned}")
+                 f"  ·  step {stepno}/{plen}" + ("" if deferred else f"  ·  score {score + earned}"))
         text, elapsed, how, pastes = run_step(stdscr, title, q, step, options, clock)
         res = judge(step, text, how)
-        sound.play("win" if res["ok"] else "lose")
         limit = min(step.get("time_limit", MAX_TIME), MAX_TIME)
         pts = points_for(res["ok"], elapsed, limit)
         earned += pts
         log.append({"step": sid, "ok": res["ok"], "time": elapsed, "how": how, "pastes": pastes})
-        quit_ = pager(stdscr, f" {q['id']}  step {stepno}/{plen}  ·  {q['topic']}",
-                      feedback_lines(step, options, text, res, elapsed, pts, pastes,
-                                     q.get("docs"), clock)) == "quit"
-        solved = res["ok"] and not res["next"]
+        page_title = f" {q['id']}  step {stepno}/{plen}  ·  {q['topic']}"
+        page = feedback_lines(step, options, text, res, elapsed, pts, pastes, q.get("docs"), clock)
+        if deferred:  # no verdict now; a wrong step goes on along the solution path, like the exam
+            answers.append((page_title, page))
+            quit_ = False
+            solved = all(s["ok"] for s in log) and not correct_next(step)
+            nxt = correct_next(step)
+        else:
+            sound.play("win" if res["ok"] else "lose")
+            quit_ = pager(stdscr, page_title, page) == "quit"
+            solved = res["ok"] and not res["next"]
+            nxt = res["next"]
         timeup = bool(clock) and time.monotonic() >= clock["deadline"]
         if quit_ or timeup:  # the global clock ran out: the exam is over
-            return {"id": q["id"], "domain": q["domain"], "points": earned,
-                    "solved": solved, "steps": log, "quit": quit_, "timeup": timeup}
-        sid = res["next"]
-    sound.play("clear" if solved else "fail")
-    quit_ = pager(stdscr, f" {q['id']}  recap  ·  {q['title']}",
-                  recap_lines(q, earned, solved)) == "quit"
+            return {"id": q["id"], "domain": q["domain"], "points": earned, "solved": solved,
+                    "steps": log, "quit": quit_, "timeup": timeup, "answers": answers}
+        sid = nxt
+    recap_title = f" {q['id']}  recap  ·  {q['title']}"
+    if deferred:
+        answers.append((recap_title, recap_lines(q, earned, solved)))
+        quit_ = False
+    else:
+        sound.play("clear" if solved else "fail")
+        quit_ = pager(stdscr, recap_title, recap_lines(q, earned, solved)) == "quit"
     return {"id": q["id"], "domain": q["domain"], "points": earned,
-            "solved": solved, "steps": log, "quit": quit_}
+            "solved": solved, "steps": log, "quit": quit_, "answers": answers}
+
+
+def answers_lines(results):
+    """FEEDBACK AT THE END: every answer page and recap of the session, one after the other."""
+    lines = [("Every step you played, in order: your answer, all the options and why.", A["dim"])]
+    for n, r in enumerate(results, 1):
+        if r.get("unreached"):
+            continue
+        lines += [("", 0), ("━" * 60, A["cyan"]),
+                  (f"Q{n}  {r['id']}  ·  " + ("✔ solved" if r["solved"] else "✘ not solved")
+                   + f"  ·  {r['points']} points", (A["green"] if r["solved"] else A["red"]) | A["bold"])]
+        for title, page in r.get("answers", []):
+            lines += [("", 0), (title.strip(), A["cyan"] | A["bold"]), ("", 0)] + page
+    unreached = [r["id"] for r in results if r.get("unreached")]
+    if unreached:
+        lines += [("", 0), ("Not reached before the clock ran out: " + "  ".join(unreached), A["yellow"])]
+    return lines
 
 
 # --------------------------------------------------------------------------
@@ -1039,6 +1081,8 @@ def rules_lines():
         ("         appear as a hint at half of the step's time (also: --recall).", n),
         ("  HINTS  OFF, or ON: each step shows a short hint (where to look, what matters),", n),
         ("         never the answer itself (also: --hints).", n),
+        ("  FEEDBACK  EACH STEP, or AT THE END like the exam: no verdict while you play, a", n),
+        ("         wrong step goes on; all the answers come after the score (--feedback end).", n),
         ("  AUTOCOMPLETE  OFF, or ON: Tab completes commands, names and flags, like kubectl's", n),
         ("         completion in the exam (from the question's commands; not in YAML files).", n),
         ("  TIMER  BY QUESTION (a countdown per step) or GLOBAL: one clock for the session,", n),
@@ -1125,6 +1169,13 @@ def option_rows(questions, sound):
          "hints": {"OFF": "No help on the question screen, like the exam.",
                    "ON": "Each step shows a short hint under its task: where to look, what matters. "
                          "Never the answer itself."}},
+        {"label": "FEEDBACK", "values": ["EACH STEP", "AT THE END"],
+         "index": int(SETTINGS["feedback"] == "end"),
+         "on_change": setter("feedback", {"EACH STEP": "step", "AT THE END": "end"}),
+         "hints": {"EACH STEP": "After each step: right or wrong, every option and why. A wrong step "
+                                "ends the question.",
+                   "AT THE END": "Like the exam: no verdict, no score while you play, a wrong step goes on. "
+                                 "All the answers come after the final score. (LEARN mode: each step.)"}},
         {"label": "AUTOCOMPLETE", "values": ["OFF", "ON"], "index": int(SETTINGS["autocomplete"]),
          "on_change": setter("autocomplete", {"OFF": False, "ON": True}),
          "hints": {"OFF": "Type every character, Tab inserts 2 spaces.",
@@ -1156,6 +1207,7 @@ def options_status(sound):
     return "  ·  ".join([
         "LEARN" if SETTINGS["learn"] else "RECALL" if SETTINGS["recall"] else "EXAM",
         *(["HINTS"] if SETTINGS["hints"] else []),
+        *(["FEEDBACK AT END"] if feedback_at_end() else []),
         *(["AUTOCOMPLETE"] if SETTINGS["autocomplete"] else []),
         "GLOBAL TIMER" if SETTINGS["timer"] == "global" else "TIMER BY QUESTION",
         "STEREO" if SETTINGS["stereo"] else "MONO",
@@ -1303,6 +1355,8 @@ def session(stdscr, domains, questions, args, sound):
     if results:
         save_review(update_review(load_review(), results, SETTINGS["learn"]))
         retro.finale(stdscr, finale_info(results, questions, domains), sound)
+        if any(r.get("answers") for r in results):  # FEEDBACK AT THE END: now the answers
+            pager(stdscr, " THE ANSWERS", answers_lines(results), footer="Enter / q: done")
     return results
 
 
@@ -1330,6 +1384,9 @@ def main(argv=None):
                            "when half of the step's time is gone")
     ap.add_argument("--hints", action="store_true",
                     help="each step shows a short pedagogical hint under its task (never the answer)")
+    ap.add_argument("--feedback", choices=["step", "end"], default="step",
+                    help="step: the answer after each step (default); end: like the exam, no verdict "
+                         "while you play, all the answers after the final score")
     ap.add_argument("--level", choices=list(LEVELS), default="hard",
                     help="easy: easy questions only; medium: easy + medium; hard: all (default)")
     ap.add_argument("--timer", choices=["question", "global"], default="question",
@@ -1346,7 +1403,7 @@ def main(argv=None):
     SETTINGS["allow_paste"] = args.allow_paste
     SETTINGS["silent"] = args.silent
     SETTINGS["learn"], SETTINGS["recall"], SETTINGS["hints"] = args.learn, args.recall, args.hints
-    SETTINGS.update(level=args.level, timer=args.timer, stereo=args.stereo, autocomplete=args.autocomplete)
+    SETTINGS.update(level=args.level, timer=args.timer, feedback=args.feedback, stereo=args.stereo, autocomplete=args.autocomplete)
     retro.set_theme(args.theme)
 
     try:

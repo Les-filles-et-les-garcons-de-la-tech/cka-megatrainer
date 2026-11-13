@@ -110,7 +110,7 @@ troubleshooting-x4k2p   1/3     CrashLoopBackOff  2         6m40s
 
 ### Options
 
-**OPTIONS**, on the title menu, opens a screen of five settings (UP/DOWN to choose, LEFT/RIGHT or Enter
+**OPTIONS**, on the title menu, opens a screen of seven settings (UP/DOWN to choose, LEFT/RIGHT or Enter
 to change, Q to go back). They apply at once and reset at the next launch; a line under the title
 menu always shows the current ones.
 
@@ -118,13 +118,14 @@ menu always shows the current ones.
 |---|---|---|
 | MODE | **EXAM** / LEARN / RECALL | LEARN shows the answers (see [Learn mode](#learn-mode)); RECALL hides the options: type the answer from memory, they appear as a hint at half of the step's time |
 | HINTS | **OFF** / ON | ON shows a short hint under each step's task: where to look, what matters, never the answer |
+| FEEDBACK | **EACH STEP** / AT THE END | AT THE END, like the exam: no verdict, no sound and no score while you play, and a wrong step does not end the question (the next steps still earn partial credit). After the final score, one scrollable ANSWERS page shows every step's answer page and every recap. LEARN mode always explains each step |
 | AUTOCOMPLETE | **OFF** / ON | ON: Tab completes commands, resource names, namespaces and flags like kubectl's bash completion in the exam, from the words of the question's own commands (a unique match is completed, several are listed). Not in YAML files, as in the exam |
 | TIMER | **BY QUESTION** / GLOBAL | GLOBAL: one countdown for the whole session, like the CKA: **120 minutes** for the CKA EXAM, the sum of its steps' own times for a shorter round. When it runs out, the session ends and the questions not reached count as failed |
 | MUSIC | **ON** / OFF | the themes of the title, level and finale screens; sound effects stay |
 | SOUND | **MONO** / STEREO | STEREO: the same original tunes arranged wide, with a harmony, arpeggios bouncing between the speakers, echoes, and fireworks heard where they burst (rendered once, about 3 s, then cached) |
 
 Defaults in bold. The same settings exist as flags: `--learn`, `--recall`, `--hints`, `--autocomplete`, `--silent`,
-`--timer global`, `--stereo`.
+`--feedback end`, `--timer global`, `--stereo`.
 
 **LEVEL** is on the title menu itself, just before HOW TO PLAY: select it and press LEFT/RIGHT (or
 Enter) to switch between **EASY** (everyday tasks, 34 questions), **MEDIUM** (easy + medium, 87) and
@@ -199,6 +200,7 @@ make help                                # all targets
 ./cka_trainer.py --recall                    # recall mode: options hidden until half time
 ./cka_trainer.py --hints                     # a hint under each step's task
 ./cka_trainer.py --exam --timer global       # the real format: one 120-minute clock
+./cka_trainer.py --exam --timer global --feedback end   # ...and no verdict until the end
 ./cka_trainer.py --level easy                # everyday tasks only (medium: + medium; hard: all)
 ./cka_trainer.py --stereo                    # stereo sound, more voices
 ./cka_trainer.py --autocomplete              # Tab completion, like kubectl's in the exam
