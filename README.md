@@ -96,6 +96,10 @@ Each domain entry plays a **short round on that domain**: its share of a 20-ques
 at random (e.g. STORAGE: 2 questions, TROUBLESHOOTING: 6). **ALL QUESTIONS** plays the whole
 library; `--domain NAME` on the command line plays all the questions of one domain.
 
+**BOSS stage**: the last question of a CKA EXAM is the hardest TROUBLESHOOTING question your LEVEL
+allows, announced by a flashing **WARNING** screen with its own theme; its steps are worth **double
+points** (the exam % still counts each step once).
+
 **SURVIVAL** plays random questions without end, with **3 lives** shown as red hearts: a question you
 do not solve costs one. With no life left, your score goes to the HI-SCORES, then **CONTINUE? 10..0**:
 Enter (INSERT COIN) gives you 3 new lives and the score starts again from 0; Q gives up. SURVIVAL

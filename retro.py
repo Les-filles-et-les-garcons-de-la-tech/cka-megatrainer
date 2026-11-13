@@ -570,6 +570,50 @@ def level_screen(win, number, total, lines, sound, seconds=2.0, lives=None):
     curses.flushinp()
 
 
+def boss_screen(win, lines, sound, seconds=4.0):
+    """'WARNING' before the BOSS stage: hazard stripes, a flashing word, the boss theme.
+    lines: [(text, colour)] about the question. Enter / space skips it after a moment."""
+    init_colors()
+    curses.curs_set(0)
+    sound.wait_ready(1.5)
+    sound.start_music("boss")
+    curses.flushinp()
+    t0 = time.monotonic()
+    try:
+        while (t := time.monotonic() - t0) < seconds:
+            sound.tick()
+            h, w = win.getmaxyx()
+            win.erase()
+            draw_stars(win, t + 70)
+            word = big("WARNING") if w >= width(big("WARNING")) + 4 and h >= 7 + len(lines) + 10 else half("WARNING")
+            block = 1 + len(word) + 2 + len(lines) + 2 + 1
+            y = max(0, (h - block) // 2)
+            shift = int(t * 8)
+            stripe = ("▚▞" * w)[shift % 2:][:w - 1]
+            hot = C["red" if int(t * 4) % 2 == 0 else "yellow"] | curses.A_BOLD
+            put(win, y, 0, stripe, hot)
+            _center_sprite(win, y + 1 + 1, word, lambda r, c: (C["red"] if int(t * 4) % 2 == 0
+                                                              else C["white"]) | curses.A_BOLD)
+            yy = y + 2 + len(word) + 1
+            for i, (text, color) in enumerate(lines):
+                text = text[:w - 2]
+                x = (w - len(text)) // 2
+                put(win, yy + i, max(0, x - 1), " " * (len(text) + 2))
+                put(win, yy + i, x, text, C[color] | curses.A_BOLD)
+            put(win, yy + len(lines) + 1, 0, stripe, hot)
+            win.refresh()
+            win.timeout(FRAME_MS)
+            try:
+                key = win.get_wch()
+            except curses.error:
+                continue
+            if key in ("\n", "\r", " ", curses.KEY_ENTER) and t > 0.8:
+                break
+    finally:
+        sound.stop_music()
+    curses.flushinp()
+
+
 # --------------------------------------------------------------------------
 # SURVIVAL: a life lost, CONTINUE?
 # --------------------------------------------------------------------------
@@ -1190,6 +1234,14 @@ B5:2 C6:2 D6:4 B5:2 G5:2 D6:4 | E6:4 D6:2 C6:2 C6:8
 VICTORY_ROOTS = ["C3", "F2", "G2", "C3", "A2", "F2", "G2", "C3"]
 GAMEOVER = "E5:4 C5:4 A4:8 | F4:4 A4:4 C5:8 | D5:4 F5:2 E5:2 D5:4 C5:4 | B4:4 G#4:4 E4:8"
 GAMEOVER_ROOTS = ["A2", "F2", "D2", "E2"]
+# BOSS stage (original): a hammered E against its chromatic neighbours, rising to a high C and back
+BOSS = """
+E5:2 E5:2 .:2 E5:2 F5:2 E5:2 D#5:2 E5:2 | G5:2 F5:2 E5:2 C5:2 B4:4 .:4 |
+E5:2 E5:2 .:2 E5:2 F5:2 G5:2 A#5:2 B5:2 | C6:3 B5:1 A#5:2 G5:2 F5:2 D#5:2 E5:4
+"""
+BOSS_ROOTS = ["E2", "F2", "E2", "B1"]
+BOSS_BPM = 168
+BOSS_CHORDS = {"E": (0, 3, 7), "F": (0, 4, 7), "B": (0, 4, 7)}  # E minor, its flat second, its dominant
 
 
 def render_song(lead, roots, bpm, loops=2, drums=True):
@@ -1230,6 +1282,7 @@ SONGS = {
     "theme": render_theme,
     "victory": lambda: render_song(VICTORY, VICTORY_ROOTS, 132),
     "gameover": lambda: render_song(GAMEOVER, GAMEOVER_ROOTS, 96, drums=False),
+    "boss": lambda: render_song(BOSS, BOSS_ROOTS, BOSS_BPM, loops=3),
 }
 
 
@@ -1295,7 +1348,7 @@ def _normalize(left, right, peak=0.98):
     return left, right
 
 
-def render_song_stereo(lead, roots, bpm, loops=2, drums=True):
+def render_song_stereo(lead, roots, bpm, loops=2, drums=True, chords=None):
     """Lead + detuned chorus, a diatonic harmony, arpeggios bouncing between the speakers,
     a ping-pong echo, centred bass and drums spread across the stereo field."""
     s16 = 60 / bpm / 4
@@ -1321,7 +1374,7 @@ def render_song_stereo(lead, roots, bpm, loops=2, drums=True):
     arp_l, arp_r = [], []  # the bar's chord in sixteenths, alternating speakers
     for root in roots:
         base = midi(root[:-1] + "4")
-        tones = [base + c for c in CHORDS[root[:-1]]] + [base + 12]
+        tones = [base + c for c in (chords or CHORDS)[root[:-1]]] + [base + 12]
         for k, i in enumerate([0, 1, 2, 3, 2, 1, 2, 3] * 2):
             (arp_l if k % 2 == 0 else arp_r).append((tones[i], 1))
             (arp_r if k % 2 == 0 else arp_l).append((None, 1))
@@ -1379,6 +1432,7 @@ STEREO = {
     "theme": lambda: render_song_stereo(LEAD, BASS_ROOTS, BPM),
     "victory": lambda: render_song_stereo(VICTORY, VICTORY_ROOTS, 132),
     "gameover": lambda: render_song_stereo(GAMEOVER, GAMEOVER_ROOTS, 96, drums=False),
+    "boss": lambda: render_song_stereo(BOSS, BOSS_ROOTS, BOSS_BPM, loops=3, chords=BOSS_CHORDS),
     "move": lambda: _placed(render_sfx([("E6", 0.035)]), 0.5),
     "select": lambda: render_sfx_stereo([("C6", 0.05), ("E6", 0.05), ("G6", 0.05), ("C7", 0.2)], 0.25),
     "level": lambda: render_sfx_stereo([("G4", 0.08), ("G4", 0.08), ("G4", 0.08), ("C5", 0.24),

@@ -745,16 +745,25 @@ class FeedbackAtEnd(unittest.TestCase):
         self.real_flash = t.miss_flash
         for mod, name, fake in ((t, "pager", lambda scr, title, lines, **kw: self.pages.append(title) or "next"),
                                 (t.retro, "level_screen", lambda *a, **kw: None),
+                                (t.retro, "boss_screen", lambda *a, **kw: self.pages.append("BOSS")),
                                 (t, "miss_flash", lambda *a: None)):
             self.addCleanup(setattr, mod, name, getattr(mod, name))
             setattr(mod, name, fake)
         self.sound = type("S", (), {"play": lambda _, name: self.sounds.append(name)})()
 
-    def play(self, qid, typed):
+    def play(self, qid, typed, boss=False):
         answers = iter(typed)
         self.addCleanup(setattr, t, "run_step", t.run_step)
         t.run_step = lambda *a: (next(answers), 3.0, "submit", 0)
-        return t.ask_question(None, BY_ID[qid], 1, 1, 0, FX_DOMAINS, self.sound)
+        return t.ask_question(None, BY_ID[qid], 1, 1, 0, FX_DOMAINS, self.sound, boss=boss)
+
+    def test_boss_stage_doubles_every_step(self):
+        t.SETTINGS["feedback"] = "end"  # no pages: only the BOSS screen is recorded
+        plain = self.play("CLU-001", self.right("CLU-001"))
+        self.assertEqual(self.pages, [])
+        boss = self.play("CLU-001", self.right("CLU-001"), boss=True)
+        self.assertEqual(self.pages, ["BOSS"])  # the WARNING screen instead of the LEVEL one
+        self.assertEqual(boss["points"], 2 * plain["points"])
 
     def right(self, qid):
         return [t.correct_option(s)["cmd"] for _, s in t.correct_path(BY_ID[qid])]
@@ -1018,6 +1027,37 @@ class Survival(unittest.TestCase):
         self.assertEqual(t.retro.hearts(1, 3), "♥♡♡")
         self.assertNotEqual(t.retro.glyph("♥"), t.retro.glyph(" "))
         self.assertNotEqual(t.retro.glyph("♡"), t.retro.glyph("♥"))
+
+
+class Boss(unittest.TestCase):
+    """The CKA EXAM's last question: the hardest TROUBLESHOOTING the LEVEL allows."""
+    def test_last_question_is_a_top_troubleshooting_one_and_proportions_stay(self):
+        import random
+        for level in t.LEVELS:
+            pool = t.at_level(QUESTIONS, level)
+            top = max(q["difficulty"] for q in pool if q["domain"] == t.BOSS_DOMAIN)
+            for seed in range(60):
+                rnd = random.Random(seed)
+                picked = t.pick_exam(pool, DOMAINS, rnd=rnd)
+                exam, boss = t.place_boss(picked, pool, rnd)
+                self.assertTrue(boss)
+                self.assertEqual(len(exam), len(picked))
+                self.assertEqual(len({q["id"] for q in exam}), len(exam))  # no question twice
+                count = lambda qs: sorted(q["domain"] for q in qs)
+                self.assertEqual(count(exam), count(picked), (level, seed))
+                self.assertEqual((exam[-1]["domain"], exam[-1]["difficulty"]), (t.BOSS_DOMAIN, top), (level, seed))
+
+    def test_boss_theme_fills_its_bars_and_has_its_chords(self):
+        r = t.retro
+        self.assertEqual(sum(n for _, n in r.parse(r.BOSS)), 16 * len(r.BOSS_ROOTS))
+        self.assertTrue(all(root[:-1] in r.BOSS_CHORDS for root in r.BOSS_ROOTS))  # stereo arpeggios
+        for name in ("boss",):
+            self.assertIn(name, r.SONGS)
+            self.assertIn(name, r.STEREO)
+
+    def test_no_troubleshooting_no_boss(self):
+        pool = [q for q in QUESTIONS if q["domain"] != t.BOSS_DOMAIN]
+        self.assertEqual(t.place_boss(pool[:5], pool), (pool[:5], False))
 
 if __name__ == "__main__":
     unittest.main()

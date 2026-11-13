@@ -55,6 +55,7 @@ STATE_DIR = Path(os.environ.get("CKA_MEGATRAINER_HOME") or Path.home() / ".cka_m
 REVIEW_FILE = "review.json"
 SCORES_FILE = "highscores.json"  # HI-SCORES: the top TOP_SCORES of each board (round x LEVEL)
 TOP_SCORES = 10
+BOSS_DOMAIN, BOSS_FACTOR = "troubleshooting", 2  # CKA EXAM: the last question is a BOSS, double points
 LIVES = 3  # SURVIVAL: a question not solved costs one
 CONTINUE_SECONDS = 10
 RUN = {"lives": None}  # SURVIVAL's lives while it runs (None otherwise): drawn as red hearts
@@ -1035,19 +1036,25 @@ def recap_lines(q, earned, solved):
     return lines + docs_lines(q.get("docs"))
 
 
-def ask_question(stdscr, q, n, total, score, domains, sound, clock=None):
+def ask_question(stdscr, q, n, total, score, domains, sound, clock=None, boss=False):
     sid, stepno, earned, solved = q["start"], 0, 0, False
     path = correct_path(q)
     plen = len(path)
     log = []
     seconds = sum(min(s.get("time_limit", MAX_TIME), MAX_TIME) for _, s in path)
-    retro.level_screen(stdscr, n, total, [
+    about = [
         (short_name(domains[q["domain"]]) + f"  ·  {q['id']}", "cyan"),
         (q["title"], "yellow"),
         (f"{plen} step{'s' * (plen > 1)}  ·  " + (f"{clock_text(clock['deadline'] - time.monotonic())} left "
                                                    f"on the global clock" if clock else f"{seconds}s on the clock"),
          "white"),
-    ], sound, lives=None if RUN["lives"] is None else (RUN["lives"], LIVES))
+    ]
+    if boss:
+        retro.boss_screen(stdscr, [("A BOSS APPROACHES", "red"), ("", "white"), *about,
+                                   (f"DOUBLE POINTS ON EVERY STEP", "magenta")], sound)
+    else:
+        retro.level_screen(stdscr, n, total, about, sound,
+                           lives=None if RUN["lives"] is None else (RUN["lives"], LIVES))
     deferred = feedback_at_end()
     answers = []  # FEEDBACK AT THE END: each step's answer page, shown after the finale
     while sid:
@@ -1055,12 +1062,12 @@ def ask_question(stdscr, q, n, total, score, domains, sound, clock=None):
         stepno += 1
         options = list(step.get("options", []))
         random.shuffle(options)
-        title = (f" {'CKA LEARN' if SETTINGS['learn'] else 'CKA MEGATRAINER'}  Q{n}{'/' + str(total) if total else ''}  {q['id']}  {domains[q['domain']]['name']}"
+        title = (f" {'CKA LEARN' if SETTINGS['learn'] else 'CKA MEGATRAINER'}  Q{n}{'/' + str(total) if total else ''}{'  BOSS x2' if boss else ''}  {q['id']}  {domains[q['domain']]['name']}"
                  f"  ·  step {stepno}/{plen}" + ("" if deferred else f"  ·  score {score + earned}"))
         text, elapsed, how, pastes = run_step(stdscr, title, q, step, options, clock, sound)
         res = judge(step, text, how)
         limit = min(step.get("time_limit", MAX_TIME), MAX_TIME)
-        pts = points_for(res["ok"], elapsed, limit)
+        pts = points_for(res["ok"], elapsed, limit) * (BOSS_FACTOR if boss else 1)
         earned += pts
         log.append({"step": sid, "ok": res["ok"], "time": elapsed, "how": how, "pastes": pastes})
         page_title = f" {q['id']}  step {stepno}/{plen}  ·  {q['topic']}"
@@ -1315,6 +1322,8 @@ def rules_lines():
         ("Train like the exam: read the task, choose the right command and TYPE it in full.", n),
         ("CKA EXAM: 15-20 random questions in the exam's domain proportions. A domain line", n),
         ("plays a short round: its share of a 20-question exam (e.g. STORAGE 2/20 = 2).", n),
+        ("BOSS: the last question of a CKA EXAM is a hard TROUBLESHOOTING one, after a WARNING", n),
+        ("screen; its steps are worth double points.", n),
         ("SURVIVAL: endless random questions and 3 lives (red hearts); a question not solved", n),
         ("costs one. Out of lives: CONTINUE? 10..0, Enter = INSERT COIN (score from 0).", n),
         ("REVIEW MISSED (once you missed one): replays only the questions you got wrong, in", n),
@@ -1380,6 +1389,26 @@ def pick_exam(questions, domains, rnd=random, n=None):
         picked += rnd.sample(pool, min(k, len(pool)))
     rnd.shuffle(picked)
     return picked
+
+
+def place_boss(picked, pool, rnd=random):
+    """The CKA EXAM's BOSS stage: its last question is the hardest kind of TROUBLESHOOTING the pool
+    has. One already drawn moves to the end; otherwise it replaces a drawn TROUBLESHOOTING question
+    (the domain proportions stay). Returns (questions, True if the last one is a boss)."""
+    trb = [q for q in pool if q["domain"] == BOSS_DOMAIN]
+    drawn = [q for q in picked if q["domain"] == BOSS_DOMAIN]
+    if not trb or not drawn:
+        return picked, False
+    top = max(q["difficulty"] for q in trb)
+    bosses = [q for q in drawn if q["difficulty"] == top]
+    if bosses:
+        boss = rnd.choice(bosses)
+        rest = [q for q in picked if q is not boss]
+    else:
+        boss = rnd.choice([q for q in trb if q["difficulty"] == top])
+        out = rnd.choice(drawn)
+        rest = [q for q in picked if q is not out]
+    return rest + [boss], True
 
 
 def pick_domain_round(questions, domains, domain, rnd=random, n=None):
@@ -1585,8 +1614,9 @@ def session(stdscr, domains, questions, args, sound):
         questions = review_questions(questions)
     elif not args.id:  # explicit --id plays exactly what was asked
         questions = at_level(questions)
+    boss = False
     if choice == "exam":
-        questions = pick_exam(questions, domains, n=args.count)
+        questions, boss = place_boss(pick_exam(questions, domains, n=args.count), questions)
     elif choice and choice != "review":  # a domain line of the menu: its share of a 20-question exam
         questions = pick_domain_round(questions, domains, choice, n=args.count)
     else:  # ALL QUESTIONS, REVIEW MISSED, --domain (all its questions) or --id
@@ -1600,7 +1630,8 @@ def session(stdscr, domains, questions, args, sound):
         clock = {"total": total, "deadline": time.monotonic() + total}
     results, score = [], 0
     for n, q in enumerate(questions, 1):
-        r = ask_question(stdscr, q, n, len(questions), score, domains, sound, clock)
+        r = ask_question(stdscr, q, n, len(questions), score, domains, sound, clock,
+                         boss=boss and n == len(questions))
         results.append(r)
         score += r["points"]
         if r["quit"] or r.get("timeup"):
