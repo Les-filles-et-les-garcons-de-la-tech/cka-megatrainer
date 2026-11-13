@@ -67,14 +67,15 @@ iaac-coverage: ## Which tests exercise which question (no cluster needed)
 # --- the libvirt lab (iaac/vm): Ubuntu 24.04 VMs, kubeadm, like the exam (HA=1: 3 control planes + lb) ---
 VM_ANSIBLE = cd iaac/vm && .venv/bin/ansible-playbook
 HA ?= 0
+ADDONS ?=
 VM_HA = $(if $(filter 1 true yes,$(HA)),true,false)
 
 vm-venv: ## Install the pinned Ansible into iaac/vm/.venv (no system change)
 	@test -x iaac/vm/.venv/bin/ansible-playbook || { $(PYTHON) -m venv iaac/vm/.venv && \
 	  iaac/vm/.venv/bin/pip install -q -r iaac/vm/requirements.txt; }
 
-vm-up: vm-venv ## Build the VM lab (libvirt): cp1 + node01, kubeadm v1.37, Calico, add-ons (HA=1: cp1..cp3 + lb + node01)
-	@$(VM_ANSIBLE) site.yml -e ha=$(VM_HA)
+vm-up: vm-venv ## Build the VM lab (libvirt): cp1 + node01, kubeadm v1.37, Calico, add-ons (HA=1: cp1..cp3 + lb + node01; ADDONS=full: controllers)
+	@$(VM_ANSIBLE) site.yml -e ha=$(VM_HA) -e addons=$(ADDONS)
 
 vm-down: vm-venv ## Delete the VM lab (VMs, disks, network); keeps the image cache and SSH key
 	@$(VM_ANSIBLE) destroy.yml

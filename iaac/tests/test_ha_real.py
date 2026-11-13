@@ -3,10 +3,14 @@ stacked etcd behind the HAProxy VM 'lb', plus node01). Skipped anywhere else (ki
 
     make vm-test ARGS=test_ha_real                 the read-only checks
     make vm-test-destructive ARGS=test_ha_real     also: one etcd member down (TRB-036), cp3 re-joined (CLU-027)
+    REAL_UPGRADE=1 make vm-test-destructive ARGS=test_ha_real.HARealUpgrade
+                                                   CLU-029 for real: v1.37.0 -> v1.37.1 on the 3 control
+                                                   planes (the cluster stays upgraded: rebuild after it)
 
 The questions name the load balancer lb.k8s.lab and the control planes 192.168.10.11..13; the lab's are
 'lb' and 192.168.124.10..12: the tests substitute them.
 """
+import os
 import re
 import time
 import unittest
@@ -167,3 +171,67 @@ class HAReal(ClusterTest):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+TARGET_VERSION = "1.37.1"
+TARGET_PKG = "1.37.1-1.1"
+
+
+def upgrade_kubelet(name):
+    """The part of a node upgrade the questions leave to the package manager (CLU-007 / CLU-029
+    contexts): kubelet and kubectl packages, then the kubelet restarted on the new binary."""
+    res = node(f"apt-get install -y --allow-change-held-packages kubelet={TARGET_PKG} kubectl={TARGET_PKG} "
+               "&& systemctl daemon-reload && systemctl restart kubelet", which=name, timeout=600)
+    assert res, res
+
+
+class HARealUpgrade(ClusterTest):
+    """CLU-029 with the game's commands on three real control planes. Opt-in twice (REAL_UPGRADE=1 and
+    DESTRUCTIVE=1): the cluster stays on the new version afterwards (make vm-down vm-up HA=1)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        if not VM or control_planes() != ["cp1", "cp2", "cp3"]:
+            raise unittest.SkipTest("needs the VM lab's HA layout (make vm-up HA=1)")
+        if not (DESTRUCTIVE and os.environ.get("REAL_UPGRADE") == "1"):
+            raise unittest.SkipTest("upgrades the cluster for good: run with REAL_UPGRADE=1 DESTRUCTIVE=1")
+
+    def test_clu007_clu029_trb022_real_ha_upgrade(self):
+        # CLU-007 context: the pkgs.k8s.io version format; TRB-022: where the kubeadm drop-in lives
+        avail = node("apt-get update -qq && apt-cache madison kubeadm", which="cp1", timeout=300).out
+        if TARGET_PKG not in avail:
+            self.skipTest(f"kubeadm {TARGET_PKG} not published yet: {avail[:200]}")
+        unit = node("systemctl cat kubelet", which="cp1").out
+        self.assertIn("# /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf", unit)
+        for cp in ("cp1", "cp2", "cp3"):                                 # scenario: kubeadm is already 1.37.1
+            self.assertTrue(node(f"apt-get install -y --allow-change-held-packages kubeadm={TARGET_PKG}",
+                                 which=cp, timeout=600))
+        # s1 on cp1, the FIRST control plane (kubeadm asks for confirmation: answer y)
+        res = node(answer("CLU-029", "s1"), which="cp1", stdin="y\n", timeout=1200)
+        self.assertTrue(res, res)
+        self.assertRegex(res.out, rf'SUCCESS!.*upgraded to "v{re.escape(TARGET_VERSION)}"')
+        # cp1's kubelet (the scenario says cp1 is fully done before cp2)
+        self.ok("kubectl drain cp1 --ignore-daemonsets --delete-emptydir-data", timeout=300)
+        upgrade_kubelet("cp1")
+        self.ok("kubectl uncordon cp1")
+        for cp in ("cp2", "cp3"):                                        # one node at a time
+            self.assertFalse(node(f"kubeadm upgrade node v{TARGET_VERSION}", which=cp))   # trap: no version
+            res = node(answer("CLU-029", "s2"), which=cp, timeout=1200)                   # s2
+            self.assertTrue(res, res)
+            self.assertRegex(res.out, r"(?i)successfully (updated|upgraded)")
+            drain = answer("CLU-029", "s3").replace("cp2", cp)                             # s3
+            if not sh(drain, timeout=300):                                                 # an emptyDir Pod
+                self.ok(drain + " --delete-emptydir-data", timeout=300)                    # landed there
+            upgrade_kubelet(cp)
+            self.ok(answer("CLU-029", "s4").replace("cp2", cp))                            # s4
+            nodes = wait_regex(answer("CLU-029", "s5"), rf"{cp}\s+Ready\s+control-plane\s+\S+\s+v{TARGET_VERSION}", 300)
+            self.assertRegex(nodes.out, rf"{cp}\s+Ready\s+control-plane\s+\S+\s+v{TARGET_VERSION}")  # s5
+        self.assertNotIn("SchedulingDisabled", self.ok("kubectl get nodes").out)
+        for comp in ("kube-apiserver", "kube-controller-manager", "kube-scheduler"):
+            images = self.ok(f"kubectl get pods -n kube-system -l component={comp} "
+                             "-o jsonpath='{.items[*].spec.containers[0].image}'").out
+            self.assertEqual(images.count(f":v{TARGET_VERSION}"), 3, images)
+        self.assertTrue(ready_through_lb(6, 300))
+        health = on_cp(answer("CLU-028", "s3"))
+        self.assertEqual(len(re.findall(r"is healthy", health.out)), 3, health.out)

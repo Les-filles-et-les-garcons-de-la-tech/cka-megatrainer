@@ -59,6 +59,26 @@ class ExamShape(ClusterTest):
         live = in_etcd(wrong("CLU-009", "s0", 2))                                         # trap: a directory
         self.assertFalse(live, live)
 
+    def test_clu023_calico_crds_need_create_not_apply(self):
+        if not VM:
+            self.skipTest("Calico runs on the VM lab only")
+        ver = re.search(r"^calico_version: (\S+)", (Path(__file__).parents[1] / "vm/group_vars/all.yml").read_text(), re.M).group(1)
+        base = f"https://raw.githubusercontent.com/projectcalico/calico/{ver}/manifests"
+        with tempfile.TemporaryDirectory() as d:
+            for f in ("operator-crds.yaml", "tigera-operator.yaml"):
+                self.ok(f"curl -fsSL -o {d}/{f} {base}/{f}", timeout=120)
+            crds = Path(d, "operator-crds.yaml").read_text()
+            self.assertGreater(len(crds), 1_000_000)                                        # the CRDs live here
+            self.assertNotIn("kind: CustomResourceDefinition", Path(d, "tigera-operator.yaml").read_text())
+            too_long = sh(wrong("CLU-023", "s2", 1) + " --dry-run=server", cwd=d, timeout=200)   # trap
+            self.assertFalse(too_long)
+            self.assertIn("metadata.annotations: Too long", too_long.out)
+            self.ok(answer("CLU-023", "s2").replace("kubectl create", "kubectl apply --server-side --force-conflicts")
+                    + " --dry-run=server", cwd=d, timeout=200)                               # alias: server-side
+            self.ok("kubectl apply -f tigera-operator.yaml --dry-run=server", cwd=d)          # s6 alias: small file
+            mism = sh(wrong("CLU-023", "s6", 1) + " --dry-run=server", cwd=d)                 # trap: -n kube-system
+            self.assertIn('does not match the namespace "kube-system"', mism.out)
+
     def test_clu023_calico_lives_in_calico_system(self):
         if VM:                                                                         # the lab runs Calico
             self.assertIn("calico-node", self.answer_ok("CLU-023", "s5").out)

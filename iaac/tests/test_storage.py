@@ -6,7 +6,7 @@ import time
 import unittest
 from pathlib import Path
 
-from lib import ClusterTest, answer, final_file, prefill, sh, wait_for
+from lib import ClusterTest, answer, final_file, prefill, sh, wait_for, wrong
 
 PV = """apiVersion: v1
 kind: PersistentVolume
@@ -96,6 +96,9 @@ class Reclaim(ClusterTest):
 
     def test_sto006_retain_keeps_the_volume_when_the_claim_goes(self):
         self.bound_pair("pv-db", "db-data", "prod", "Delete")
+        warned = self.ok(wrong("STO-006", "s1", 1))                       # trap: warned, nothing changes
+        self.assertIn('unknown field "spec.reclaimPolicy"', warned.out)
+        self.assertIn("Delete", self.ok("kubectl get pv pv-db -o jsonpath='{.spec.persistentVolumeReclaimPolicy}'").out)
         self.answer_ok("STO-006", "s1")                                   # mutable even while Bound
         self.assertEqual(self.answer_ok("STO-006", "s2").out.strip("'"), "Retain")
         self.answer_ok("STO-006", "s3")
@@ -146,6 +149,10 @@ class Classes(ClusterTest):
         self.apply(sc.format(n="gp2", d="true"))
         self.apply(sc.format(n="gp3", d="false"))
         self.assertIn("(default)", [ln for ln in self.answer_ok("STO-003", "s1").out.splitlines() if "gp2" in ln][0])
+        for sid, i in (("s2", 2), ("s3", 3)):                             # traps: warned, nothing changes
+            self.assertIn("unknown field", self.ok(wrong("STO-003", sid, i)).out)
+        self.assertIn("(default)", [ln for ln in self.ok("kubectl get sc").out.splitlines() if "gp2" in ln][0])
+        self.assertNotIn("(default)", [ln for ln in self.ok("kubectl get sc").out.splitlines() if "gp3" in ln][0])
         self.answer_ok("STO-003", "s2")
         # a claim created while NO class is default...
         self.apply("apiVersion: v1\nkind: PersistentVolumeClaim\nmetadata: {name: retro}\n"

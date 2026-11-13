@@ -2166,7 +2166,7 @@
       "topic": "CNI (network plugin install)",
       "difficulty": 3,
       "title": "Nodes NotReady after kubeadm init",
-      "scenario": "A fresh kubeadm cluster: all nodes are NotReady. kubeadm-config shows podSubnet 10.50.0.0/16 and serviceSubnet 10.96.0.0/12. Install Calico with its operator: tigera-operator.yaml and custom-resources.yaml are in the current directory.",
+      "scenario": "A fresh kubeadm cluster: all nodes are NotReady. kubeadm-config shows podSubnet 10.50.0.0/16 and serviceSubnet 10.96.0.0/12. Install Calico with its operator: operator-crds.yaml, tigera-operator.yaml and custom-resources.yaml are in the current directory.",
       "tip": "NotReady + 'cni plugin not initialized' = no config in /etc/cni/net.d. The CNI IP pool must match (or sit inside) the kubeadm --pod-network-cidr.",
       "docs": [
         {"title": "Installing Addons (networking)", "url": "https://kubernetes.io/docs/concepts/cluster-administration/addons/"},
@@ -2206,23 +2206,44 @@
         "s2": {
           "type": "command",
           "time_limit": 60,
-          "prompt": "Step 2 - Install the Tigera operator and its (very large) CRDs from tigera-operator.yaml.",
+          "prompt": "Step 2 - First the API types: install Calico's (very large) CRDs from operator-crds.yaml.",
+          "options": [
+            {
+              "cmd": "kubectl create -f operator-crds.yaml",
+              "correct": true,
+              "aliases": ["kubectl apply --server-side -f operator-crds.yaml"],
+              "next": "s6"
+            },
+            {
+              "cmd": "kubectl apply -f operator-crds.yaml",
+              "why": "Client-side apply stores each object in an annotation limited to 256 KiB: the Installation CRD is rejected ('metadata.annotations: Too long'). Calico's docs use create."
+            },
+            {"cmd": "kubectl create -f custom-resources.yaml", "why": "Wrong order: the Installation CRD does not exist yet ('no matches for kind Installation') - and its CIDR is not fixed yet."},
+            {"cmd": "kubectl create -f operator-crds.yaml --dry-run=client", "why": "A client dry run only prints what would be sent: no CRD exists afterwards."}
+          ],
+          "explain": "Since Calico 3.30 the CRDs ship apart from the operator, in operator-crds.yaml (32 CRDs, about 3.4 MB). 'create' (or server-side apply) is needed: client-side apply would copy each CRD into an annotation, and the Installation CRD exceeds its 256 KiB limit.",
+          "hint": "These CRDs are too large for client-side apply's annotation: create them (or apply server-side)."
+        },
+        "s6": {
+          "type": "command",
+          "time_limit": 45,
+          "prompt": "Step 3 - Now install the Tigera operator itself from tigera-operator.yaml.",
           "options": [
             {
               "cmd": "kubectl create -f tigera-operator.yaml",
               "correct": true,
-              "aliases": ["kubectl apply --server-side -f tigera-operator.yaml"],
+              "aliases": [
+                "kubectl apply -f tigera-operator.yaml",
+                "kubectl apply --server-side -f tigera-operator.yaml"
+              ],
               "next": "s3"
             },
-            {
-              "cmd": "kubectl apply -f tigera-operator.yaml",
-              "why": "Client-side apply stores each object in an annotation limited to 256 KiB: the big Calico CRDs are rejected ('Too long'). Calico's docs use create."
-            },
-            {"cmd": "kubectl create -f custom-resources.yaml", "why": "Wrong order: the Installation CRD does not exist yet ('no matches for kind Installation') - and its CIDR is not fixed yet."},
-            {"cmd": "kubectl create -f tigera-operator.yaml -n kube-system", "why": "The manifest's namespaced objects say 'tigera-operator': kubectl refuses a mismatching -n."}
+            {"cmd": "kubectl create -f tigera-operator.yaml -n kube-system", "why": "The manifest's namespaced objects declare 'tigera-operator': kubectl refuses the mismatching -n."},
+            {"cmd": "kubectl create -f operator-crds.yaml", "why": "The CRDs are already there ('AlreadyExists'), and the operator that acts on them is still not installed."},
+            {"cmd": "kubectl create -f custom-resources.yaml --dry-run=client", "why": "A client dry run creates nothing, and the operator would still be missing."}
           ],
-          "explain": "'create', not 'apply': these CRDs are so large that 'apply' exceeds its annotation size limit. The operator then installs calico-node once it receives an Installation resource.",
-          "hint": "These CRDs are too large for client-side apply's annotation: create them (or apply server-side)."
+          "explain": "tigera-operator.yaml is small (a namespace, RBAC and the operator Deployment), so plain apply works too. The operator then waits for an Installation resource before it deploys anything.",
+          "hint": "The second file holds the operator's Deployment and RBAC, not the CRDs."
         },
         "s3": {
           "type": "edit",
@@ -2233,7 +2254,7 @@
             "      podSubnet: 10.50.0.0/16",
             "      serviceSubnet: 10.96.0.0/12"
           ],
-          "prompt": "Step 3 - Make the Calico IP pool match the cluster's pod subnet: type the right line in place of the 'cidr' line. Ctrl+D to submit.",
+          "prompt": "Step 4 - Make the Calico IP pool match the cluster's pod subnet: type the right line in place of the 'cidr' line. Ctrl+D to submit.",
           "prefill": [
             "apiVersion: operator.tigera.io/v1",
             "kind: Installation",
@@ -2281,7 +2302,7 @@
         "s4": {
           "type": "command",
           "time_limit": 45,
-          "prompt": "Step 4 - Create the Installation (and APIServer) resources from the edited file.",
+          "prompt": "Step 5 - Create the Installation (and APIServer) resources from the edited file.",
           "options": [
             {
               "cmd": "kubectl create -f custom-resources.yaml",
@@ -2299,7 +2320,7 @@
         "s5": {
           "type": "command",
           "time_limit": 45,
-          "prompt": "Step 5 - The operator now deploys Calico. Check its Pods (calico-node on every node) in the namespace the operator creates for them.",
+          "prompt": "Step 6 - The operator now deploys Calico. Check its Pods (calico-node on every node) in the namespace the operator creates for them.",
           "options": [
             {
               "cmd": "kubectl get pods -n calico-system",
@@ -4461,7 +4482,7 @@
             "controlplane   Ready    control-plane   40d   v1.37.1   eu-west-1a",
             "node01         Ready    <none>          40d   v1.37.1   eu-west-1c",
             "node02         Ready    <none>          40d   v1.37.1   eu-west-1c",
-            "Events:  Warning  FailedScheduling  0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: }, 2 node(s) didn't match Pod's node affinity/selector."
+            "Events:  Warning  FailedScheduling  0/3 nodes are available: 2 node(s) didn't match Pod's node affinity/selector, 1 node(s) had untolerated taint(s)."
           ],
           "prompt": "Step 4 - The Pod is Pending. Ops confirm node02 was moved to eu-west-1b but its label was not updated. Fix the label.",
           "options": [
@@ -5958,7 +5979,7 @@
             },
             {
               "cmd": "kubectl patch sc gp2 -p '{\"spec\":{\"isDefaultClass\":false}}'",
-              "why": "A StorageClass has no spec: kubectl's strict field validation rejects the patch (unknown field). The default flag is an annotation in metadata."
+              "why": "A StorageClass has no spec: kubectl only warns 'unknown field \"spec\"' and patches nothing, so gp2 stays the default. The default flag is an annotation in metadata."
             },
             {"cmd": "kubectl annotate sc gp2 storageclass.kubernetes.io/is-default-class=false", "why": "The annotation already has a value: without --overwrite kubectl refuses to change it."}
           ],
@@ -5990,7 +6011,7 @@
             },
             {
               "cmd": "kubectl patch sc gp3 -p '{\"annotations\":{\"storageclass.kubernetes.io/is-default-class\":\"true\"}}'",
-              "why": "annotations live under metadata: at the top level it is an unknown field and the patch is rejected."
+              "why": "annotations live under metadata: at the top level kubectl only warns 'unknown field' and nothing changes, so gp3 is still not the default."
             }
           ],
           "explain": "The DefaultStorageClass admission plugin gives the default class to new claims that omit storageClassName, and since v1.28 also to existing claims still without one: switching the default can change where old Pending claims land.",
@@ -6288,7 +6309,7 @@
             },
             {
               "cmd": "kubectl patch pv pv-db -p '{\"spec\":{\"reclaimPolicy\":\"Retain\"}}'",
-              "why": "'reclaimPolicy' is the StorageClass field. On a PV it is spec.persistentVolumeReclaimPolicy; the unknown field makes the patch fail."
+              "why": "'reclaimPolicy' is the StorageClass field. On a PV it is spec.persistentVolumeReclaimPolicy: kubectl only warns 'unknown field' and the policy stays Delete."
             },
             {"cmd": "kubectl patch pvc db-data -n prod -p '{\"spec\":{\"persistentVolumeReclaimPolicy\":\"Retain\"}}'", "why": "The policy is a property of the PV, not of the claim."},
             {"cmd": "kubectl patch sc fast -p '{\"reclaimPolicy\":\"Retain\"}'", "why": "reclaimPolicy of a StorageClass is immutable, and it would only apply to future PVs anyway."}
@@ -10291,10 +10312,12 @@
           "time_limit": 60,
           "context": [
             "Events:",
-            "  Normal   Pulling  kubelet  Pulling image \"nginx:1.277\"",
-            "  Warning  Failed   kubelet  Failed to pull image \"nginx:1.277\": rpc error: code = NotFound",
-            "           desc = failed to resolve reference \"docker.io/library/nginx:1.277\": not found",
-            "  Warning  Failed   kubelet  Error: ImagePullBackOff"
+            "  Normal   Pulling  kubelet  spec.containers{api}: Pulling image \"nginx:1.277\"",
+            "  Warning  Failed   kubelet  spec.containers{api}: Failed to pull image \"nginx:1.277\": rpc error: code = NotFound",
+            "           desc = failed to pull and unpack image \"docker.io/library/nginx:1.277\": failed to resolve image:",
+            "           docker.io/library/nginx:1.277: not found",
+            "  Warning  Failed   kubelet  spec.containers{api}: Error: ErrImagePull",
+            "  Warning  Failed   kubelet  spec.containers{api}: Error: ImagePullBackOff"
           ],
           "prompt": "Step 2 - The tag is a typo. Fix the Deployment so its container 'api' uses nginx:1.27, without editing YAML.",
           "options": [
@@ -10379,9 +10402,9 @@
           "type": "command",
           "time_limit": 45,
           "context": [
-            "  Warning  FailedScheduling  default-scheduler  0/3 nodes are available: 1 node(s) had untolerated",
-            "  taint {node-role.kubernetes.io/control-plane: }, 2 Insufficient cpu. preemption: 0/3 nodes are",
-            "  available: 1 Preemption is not helpful for scheduling, 2 No preemption victims found."
+            "  Warning  FailedScheduling  default-scheduler  0/3 nodes are available: 2 Insufficient cpu, 1 node(s)",
+            "  had untolerated taint(s). preemption: 0/3 nodes are available: 2 No preemption victims found for",
+            "  incoming pod, 1 Preemption is not helpful for scheduling."
           ],
           "prompt": "Step 2 - Show node01's Allocatable CPU and how much is already requested by other Pods.",
           "options": [
@@ -10527,15 +10550,15 @@
             {"cmd": "kubectl get pod monitor -o yaml | grep nodeName", "why": "nodeName is empty for a Pending Pod; it does not say why."},
             {"cmd": "kubectl logs -n kube-system kube-scheduler", "why": "The static Pod is named kube-scheduler-<node>; and the per-Pod reason is published as a Pod event anyway."}
           ],
-          "explain": "The FailedScheduling event names the check that rejected each node, e.g. '1 node(s) had untolerated taint'. That sends you to the node's taints.",
+          "explain": "The FailedScheduling event names the check that rejected each node: here '2 node(s) had untolerated taint(s)'. Recent releases no longer print the taints themselves, so it sends you to the nodes' taints.",
           "hint": "The scheduler's reason is an event of the Pending Pod."
         },
         "s2": {
           "type": "command",
           "time_limit": 60,
           "context": [
-            "  Warning  FailedScheduling  default-scheduler  0/2 nodes are available: 1 node(s) had untolerated",
-            "  taint {maintenance: true}, 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: }."
+            "  Warning  FailedScheduling  default-scheduler  0/2 nodes are available: 2 node(s) had untolerated",
+            "  taint(s). preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling."
           ],
           "prompt": "Step 2 - Display the taints currently set on node01.",
           "options": [
@@ -10601,8 +10624,8 @@
           "time_limit": 45,
           "context": [
             "$ kubectl describe pod ssd-app | tail -2",
-            "  Warning  FailedScheduling  default-scheduler  0/3 nodes are available: 1 node(s) had untolerated",
-            "  taint {node-role.kubernetes.io/control-plane: }, 2 node(s) didn't match Pod's node affinity/selector."
+            "  Warning  FailedScheduling  default-scheduler  0/3 nodes are available: 2 node(s) didn't match Pod's",
+            "  node affinity/selector, 1 node(s) had untolerated taint(s). preemption: 0/3 nodes are available: 3 ..."
           ],
           "prompt": "Step 1 - List the nodes together with all their labels.",
           "options": [
@@ -10734,7 +10757,10 @@
           "time_limit": 120,
           "filename": "deploy.yaml",
           "context": [
-            "usage: python -m http.server [-h] [--cgi] [-b ADDRESS] [-d DIRECTORY] [-p VERSION] [port]",
+            "usage: python -m http.server [-h] [--cgi] [-b ADDRESS] [-d DIRECTORY]",
+            "                             [-p VERSION] [--tls-cert PATH] [--tls-key PATH]",
+            "                             [--tls-password-file PATH]",
+            "                             [port]",
             "python -m http.server: error: argument port: invalid int value: 'port=8080'"
           ],
           "prompt": "Step 2 - The port is a positional argument. Type the corrected 'command' line over the broken one. Ctrl+D to submit.",
@@ -10846,7 +10872,7 @@
             "    Environment:",
             "      DB_PASSWORD:  <set to the key 'DB_PASSWORD' in secret 'shop-db'>  Optional: false",
             "Events:",
-            "  Warning  Failed  kubelet  Error: secret \"shop-db\" not found"
+            "  Warning  Failed  kubelet  spec.containers{shop}: Error: secret \"shop-db\" not found"
           ],
           "prompt": "Step 2 - Create the missing Secret with key DB_PASSWORD and value Sup3rS3cret.",
           "options": [
@@ -10918,17 +10944,13 @@
             {"cmd": "kubectl describe pod web", "why": "There is no Pod named 'web': Pod names carry ReplicaSet and random suffixes."},
             {"cmd": "kubectl get svc web -o jsonpath='{.spec.ports}'", "why": "The ports are not the problem: no endpoint exists at all, which points at the selector."}
           ],
-          "explain": "Selector, TargetPort and Endpoints side by side: 'Endpoints: <none>' while the Pods are Running means the selector matches no Ready Pod. That is your lead.",
+          "explain": "Selector, TargetPort and Endpoints side by side: an empty 'Endpoints:' line while the Pods are Running means the selector matches no Ready Pod. That is your lead.",
           "hint": "describe the Service: Selector and Endpoints are side by side."
         },
         "s2": {
           "type": "command",
           "time_limit": 45,
-          "context": [
-            "Selector:          app=web-frontend",
-            "TargetPort:        8080/TCP",
-            "Endpoints:         <none>"
-          ],
+          "context": ["Selector:          app=web-frontend", "TargetPort:        8080/TCP", "Endpoints:"],
           "prompt": "Step 2 - List the Pods with ALL their labels to compare with the selector.",
           "options": [
             {
@@ -11064,7 +11086,7 @@
           "time_limit": 120,
           "filename": "deploy.yaml",
           "context": [
-            "  Warning  Unhealthy  kubelet  Readiness probe failed: Get \"http://10.244.1.7:8080/healthz\":",
+            "  Warning  Unhealthy  kubelet  spec.containers{orders}: Readiness probe failed: Get \"http://10.244.1.7:8080/healthz\":",
             "           dial tcp 10.244.1.7:8080: connect: connection refused",
             "$ kubectl logs orders-6f9d7c8b5-5ngtx | tail -1",
             "orders listening on :3000 (health endpoint /healthz)"
@@ -12101,7 +12123,7 @@
           "time_limit": 110,
           "filename": "kube-controller-manager.yaml",
           "context": [
-            "Error: unable to load client CA provider: open /etc/kubernetes/pki/ca.crtt: no such file or directory"
+            "E1031 09:20:11.428339       1 run.go:72] \"command failed\" err=\"unable to load client CA provider: open /etc/kubernetes/pki/ca.crtt: no such file or directory\""
           ],
           "prompt": "Step 3 - 'sudo vi /etc/kubernetes/manifests/kube-controller-manager.yaml': type the corrected --client-ca-file line over the broken one.",
           "prefill": [
@@ -12233,9 +12255,11 @@
           "type": "command",
           "time_limit": 75,
           "context": [
-            "W1031 10:02:11.481902  1 logging.go:55] [core] grpc: addrConn.createTransport failed to connect to {Addr: \"127.0.0.1:2397\", ...}.",
-            "  Err: connection error: desc = \"transport: Error while dialing: dial tcp 127.0.0.1:2397: connect: connection refused\"",
-            "F1031 10:02:31.482117  1 instance.go:226] Error creating leases: error creating storage factory: context deadline exceeded"
+            "W1031 10:02:11.481902  1 logging.go:55] [core] [Channel #3 SubChannel #4] grpc: addrConn.createTransport failed",
+            "  to connect to {Addr: \"127.0.0.1:2397\", ServerName: \"127.0.0.1:2397\", }. Err: connection error: desc =",
+            "  \"transport: Error while dialing: dial tcp 127.0.0.1:2397: connect: connection refused\"",
+            "E1031 10:02:31.482117  1 run.go:72] \"command failed\" err=\"error creating storage factory: etcd grpc",
+            "  connection not ready: context deadline exceeded\""
           ],
           "prompt": "Step 2 - Check on which client URLs etcd really listens (grep its static Pod manifest).",
           "options": [
@@ -12508,7 +12532,8 @@
           "time_limit": 45,
           "context": [
             "$ kubectl describe node node01 | grep -A1 Ready",
-            "  Ready   False   KubeletNotReady   container runtime is down, PLEG is not healthy: pleg was last seen active 3m10s ago",
+            "  Ready   False   KubeletNotReady   [container runtime is down, PLEG is not healthy: pleg was last seen",
+            "  active 3m10.217853041s ago, ...]",
             "$ ssh node01"
           ],
           "prompt": "Step 1 - On node01, check the state of the container runtime service.",
@@ -12526,7 +12551,7 @@
           "time_limit": 60,
           "context": [
             "  containerd.service - containerd container runtime",
-            "     Loaded: loaded (/usr/lib/systemd/system/containerd.service; disabled; preset: disabled)",
+            "     Loaded: loaded (/usr/lib/systemd/system/containerd.service; disabled; preset: enabled)",
             "     Active: inactive (dead) since Sat 2026-10-31 09:40:12 UTC; 4min ago"
           ],
           "prompt": "Step 2 - containerd was stopped and disabled. Start it now and at every boot.",
@@ -13047,7 +13072,8 @@
           "time_limit": 110,
           "filename": "kube-proxy-cm.yaml",
           "context": [
-            "E1031 11:20:07.411302  1 run.go:72] \"command failed\" err=\"invalid configuration: KubeProxyConfiguration.mode: Unsupported value: \\\"iptable\\\"\""
+            "E1031 11:20:07.411302  1 run.go:72] \"command failed\" err=\"failed validate: KubeProxyConfiguration.Mode.ProxyMode:",
+            "  Invalid value: \\\"iptable\\\": must be iptables, ipvs, nftables or blank (blank means the best-available proxy ...\""
           ],
           "prompt": "Step 3 - 'kubectl -n kube-system edit cm kube-proxy': the cluster uses iptables mode. Type the corrected mode line over the broken one.",
           "prefill": [

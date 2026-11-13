@@ -18,7 +18,7 @@
     - name: iaac/addons.sh against the VM cluster
       ansible.builtin.command: ./addons.sh
       args: {chdir: "{{ iaac_dir }}"}
-      environment: {IAAC_TARGET: vm}
+      environment: {IAAC_TARGET: vm, ADDONS: "{{ addons | default('') }}"}  # ADDONS=full: the controllers
       register: addons
       changed_when: true
 

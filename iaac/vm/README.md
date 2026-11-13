@@ -60,6 +60,13 @@ make vm-test-destructive    # plus the tests that break and repair the control p
 make vm-down            # delete VMs, disks, network (keeps the image cache and the SSH key)
 ```
 
+- `make vm-up ADDONS=full` (either layout) also installs the controllers some answers need to really work:
+  MetalLB (LoadBalancer IPs 192.168.124.200-220, reachable from this machine), Envoy Gateway v1.10.0 (class
+  `eg`, with its own CRDs only: the Gateway API CRDs stay v1.7.0), Traefik (IngressClass `traefik`) and
+  csi-driver-host-path (class `csi-hostpath-sc`, volumes can grow). About 1.5 GiB more RAM.
+  `make vm-test ARGS=test_controllers` then checks NET-016/021/023/024 and STO-009 for real.
+- `REAL_UPGRADE=1 make vm-test-destructive ARGS=test_ha_real.HARealUpgrade` (HA layout) upgrades the three
+  control planes to v1.37.1 with CLU-029's commands. The cluster stays upgraded: rebuild after it.
 - Every step is idempotent: run `make vm-up` again after a failure.
 - One test file: `make vm-test ARGS=test_cluster`; one test: `ARGS=test_ha_control_plane.HAControlPlane.test_x`.
 - Log in to a node: `ssh -F iaac/vm/.ssh/config cp1` (user `ubuntu`, passwordless sudo).

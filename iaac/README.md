@@ -50,6 +50,7 @@ make iaac-tools           # pinned helm into iaac/.bin (the Helm tests skip with
 
 make vm-up && make vm-test                 # the same suite on Ubuntu VMs (iaac/vm/README.md)
 make vm-up HA=1 && make vm-test-destructive ARGS=test_ha_real   # the HA questions for real
+make vm-up ADDONS=full && make vm-test ARGS=test_controllers    # LoadBalancer, Gateway, Ingress TLS, CSI resize
 ```
 
 `make test` also runs the coverage check, which needs no cluster.
